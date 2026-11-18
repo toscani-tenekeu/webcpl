@@ -46,7 +46,13 @@ Other options: `--port N` (default `7777`).
 
 **0.3**: VPS with Incus. Users split their VPS plan across LXC containers on 11 Linux distributions, with SSH through a forwarded port, a browser console, power actions, resizing, reinstalls, snapshots and monthly traffic limits.
 
-Next: more databases, app runtimes, mail and backups.
+**0.4**: more databases.
+- PostgreSQL next to MariaDB.
+- A private Redis per account, on a socket in the account's home, with memory from the plan.
+- SQLite through PHP.
+- Adminer at `http://IP/dbadmin/`.
+
+Next: app runtimes, mail and backups.
 
 ## Manage
 

@@ -58,8 +58,8 @@ export function componentList(choice: ComponentChoice): (ComponentInfo & { insta
     { id: 'python', installed: choice.python, label: 'Python', description: 'Python applications behind nginx', services: [], upcoming: true },
     { id: 'ruby', installed: choice.ruby, label: 'Ruby', description: 'Ruby applications behind nginx', services: [], upcoming: true },
     { id: 'mariadb', installed: choice.mariadb, label: 'MariaDB', description: 'MySQL-compatible databases', services: ['mariadb'] },
-    { id: 'postgresql', installed: choice.postgresql, label: 'PostgreSQL', description: 'PostgreSQL databases', services: ['postgresql'], upcoming: true },
-    { id: 'redis', installed: choice.redis, label: 'Redis', description: 'A private Redis instance per account', services: [], upcoming: true },
+    { id: 'postgresql', installed: choice.postgresql, label: 'PostgreSQL', description: 'PostgreSQL databases', services: ['postgresql'] },
+    { id: 'redis', installed: choice.redis, label: 'Redis', description: 'A private Redis instance per account', services: [] },
     { id: 'dns', installed: choice.dns, label: 'DNS server', description: 'PowerDNS, authoritative for the hosted domains', services: ['pdns'] },
     { id: 'ftp', installed: choice.ftp, label: 'FTP', description: 'Pure-FTPd, for clients without SFTP', services: ['pure-ftpd'] },
     {

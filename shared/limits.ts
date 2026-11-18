@@ -21,6 +21,7 @@ export const LIMITS: Record<PlanKind, LimitField[]> = {
     { key: 'domains', label: 'Domains', type: 'number' },
     { key: 'subdomains', label: 'Subdomains', type: 'number' },
     { key: 'databases', label: 'Databases', type: 'number' },
+    { key: 'redis_mb', label: 'Redis memory', unit: 'MB', type: 'number', hint: '0: no Redis; empty: 64 MB' },
     { key: 'mailboxes', label: 'Mailboxes', type: 'number' },
     { key: 'ftp_accounts', label: 'FTP accounts', type: 'number' },
     { key: 'cron_jobs', label: 'Cron jobs', type: 'number' },

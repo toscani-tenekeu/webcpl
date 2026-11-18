@@ -5,6 +5,7 @@ import os from 'node:os'
 import { componentList, DEFAULT_CHOICE, type ComponentChoice } from '../shared/components.ts'
 import { vpsOps } from './vps.ts'
 import { consoleOps } from './console.ts'
+import { dataOps } from './data.ts'
 import { fileOps } from './files.ts'
 import { hostingOps } from './hosting.ts'
 import { serviceOps } from './services.ts'
@@ -88,6 +89,7 @@ export const operations: Record<string, Operation> = {
   ...fileOps,
   ...vpsOps,
   ...consoleOps,
+  ...dataOps,
 
   'agent.ping': () => ({ pong: true, version: process.env.WEBCPL_VERSION ?? null }),
 

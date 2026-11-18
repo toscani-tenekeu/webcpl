@@ -190,9 +190,11 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+    include /etc/nginx/webcpl/*.conf;
     location / { try_files $uri /index.html; }
 }
 NGINX
+  install -d /etc/nginx/webcpl
   rm -f /etc/nginx/sites-enabled/default
   ln -sf /etc/nginx/sites-available/webcpl-default /etc/nginx/sites-enabled/webcpl-default
   nginx -t -q && systemctl reload-or-restart nginx && apache2ctl configtest && systemctl restart apache2 && systemctl enable -q nginx apache2
@@ -326,6 +328,44 @@ for key in mariadb postgresql redis dns ftp mail node python ruby vps; do
   [ "${WANT[$key]}" = 1 ] || continue
   component "$key" "install_$key" || WANT[$key]=0
 done
+
+# Adminer, a web database manager, at http://IP/dbadmin/ with its own PHP pool and user.
+ADMINER_VERSION=5.4.1
+install_adminer() {
+  local v=${PHP_VERSIONS%% *}
+  install -d /usr/share/webcpl/adminer
+  curl -fsSL -o /usr/share/webcpl/adminer/index.php.new "https://github.com/vrana/adminer/releases/download/v$ADMINER_VERSION/adminer-$ADMINER_VERSION.php" || return 1
+  mv /usr/share/webcpl/adminer/index.php.new /usr/share/webcpl/adminer/index.php
+  id webcpl-dbadmin >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin webcpl-dbadmin
+  cat > "/etc/php/$v/fpm/pool.d/webcpl-dbadmin.conf" <<POOL
+[webcpl-dbadmin]
+user = webcpl-dbadmin
+group = webcpl-dbadmin
+listen = /run/php/webcpl-dbadmin.sock
+listen.owner = www-data
+listen.group = www-data
+pm = ondemand
+pm.max_children = 5
+php_admin_value[open_basedir] = /usr/share/webcpl/adminer:/tmp
+php_admin_value[upload_max_filesize] = 256M
+php_admin_value[post_max_size] = 256M
+php_admin_value[session.save_path] = /tmp
+POOL
+  cat > /etc/nginx/webcpl/dbadmin.conf <<'NGINX'
+location = /dbadmin { return 301 /dbadmin/; }
+location ^~ /dbadmin/ {
+    client_max_body_size 256m;
+    fastcgi_pass unix:/run/php/webcpl-dbadmin.sock;
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME /usr/share/webcpl/adminer/index.php;
+    fastcgi_param SCRIPT_NAME /dbadmin/index.php;
+}
+NGINX
+  systemctl restart "php$v-fpm" && nginx -t -q && systemctl reload nginx
+}
+if [ -n "$PHP_VERSIONS" ] && { [ "${WANT[mariadb]}" = 1 ] || [ "${WANT[postgresql]}" = 1 ]; }; then
+  component "Adminer" install_adminer || true
+fi
 
 # What actually got installed: the agent reports from this file.
 WEB_OK=true

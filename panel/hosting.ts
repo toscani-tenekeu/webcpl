@@ -59,14 +59,22 @@ export async function syncLimits(u: UserRow) {
   const { limits, ssh } = systemLimits(u)
   await agent('account.limits', { user: u.username, limits, ssh })
   await syncPhp(u)
+  if (u.redis_enabled) await agent('redis.enable', { user: u.username, memory_mb: redisMemory(u) }).catch(() => null)
 }
 
 export async function syncPassword(u: UserRow, password: string) {
   if (u.linux_user) await agent('account.password', { user: u.username, password })
 }
 
+/** Redis memory for the account: 0 means none, an empty limit means 64 MB. */
+export function redisMemory(u: UserRow) {
+  const value = hostingLimits(u).redis_mb
+  return typeof value === 'number' ? value : 64
+}
+
 export async function suspend(u: UserRow) {
   if (!u.linux_user) return
+  if (u.redis_enabled) await agent('redis.power', { user: u.username, on: false }).catch(() => null)
   await agent('account.suspend', { user: u.username })
   await writeAllSites(userById(u.id)!)
 }
@@ -74,6 +82,7 @@ export async function suspend(u: UserRow) {
 export async function unsuspend(u: UserRow) {
   if (!u.linux_user) return
   await agent('account.unsuspend', { user: u.username })
+  if (u.redis_enabled) await agent('redis.power', { user: u.username, on: true }).catch(() => null)
   await writeAllSites(userById(u.id)!)
 }
 
@@ -85,10 +94,15 @@ export async function deprovision(u: UserRow) {
     if (!d.parent_id) await agent('dns.zone.delete', { zone: d.name }).catch(() => null)
     if (d.ssl_cert) await agent('ssl.delete', { name: d.name }).catch(() => null)
   }
-  for (const database of db.query<{ name: string }, [number]>('SELECT name FROM databases WHERE user_id = ?').all(u.id)) {
+  for (const database of db.query<{ name: string; engine: string }, [number]>('SELECT name, engine FROM databases WHERE user_id = ?').all(u.id)) {
+    if (database.engine === 'postgresql') {
+      await agent('pg.delete', { name: database.name }).catch(() => null)
+      continue
+    }
     await agent('db.delete', { name: database.name }).catch(() => null)
     await agent('db.user.delete', { name: database.name }).catch(() => null)
   }
+  if (u.redis_enabled) await agent('redis.disable', { user: u.username }).catch(() => null)
   await agent('account.delete', { user: u.username })
   db.query('DELETE FROM domains WHERE user_id = ?').run(u.id)
   db.query('DELETE FROM databases WHERE user_id = ?').run(u.id)
