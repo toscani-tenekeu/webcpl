@@ -540,7 +540,7 @@ NGINX
  "Sieve":{"enabled":true,"host":"127.0.0.1","port":4190,"type":0,"timeout":10,"shortLogin":false,"sasl":["PLAIN","LOGIN"]},
  "whiteList":""}
 JSON
-  chown webcpl-webmail:webcpl-webmail "$domains/default.json"
+  chown -R webcpl-webmail:webcpl-webmail "$data"
 }
 if [ -n "$PHP_VERSIONS" ] && [ "${WANT[mail]}" = 1 ]; then
   component "Webmail" install_webmail || true
