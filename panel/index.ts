@@ -11,6 +11,8 @@ import './routes/files.ts'
 import './routes/vps.ts'
 import './routes/apps.ts'
 import './routes/mail.ts'
+import './routes/backups.ts'
+import { startSchedule } from './backups.ts'
 import { consoleSocket, upgradeConsole, type ConsoleData } from './console.ts'
 import { startTraffic } from './vps.ts'
 import { startUsage } from './usage.ts'
@@ -28,6 +30,7 @@ async function serveStatic(url: URL) {
 ensureAdmin()
 startUsage()
 startTraffic()
+startSchedule()
 
 const server = Bun.serve<ConsoleData>({
   maxRequestBodySize: 300 * 1024 * 1024,

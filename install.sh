@@ -105,7 +105,7 @@ component() { # component name function
 
 say "Installing base packages"
 apt-get update -q
-"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server
+"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone
 
 if ! command -v bun >/dev/null && [ ! -x /usr/local/bin/bun ]; then
   say "Installing Bun"
@@ -131,6 +131,7 @@ SSHD
 fi
 install -d -m 755 "$CONF"
 install -d -m 700 -o webcpl -g webcpl "$DATA"
+install -d -m 750 -o root -g webcpl /var/backups/webcpl
 
 # ---- components -------------------------------------------------------------------------------
 
