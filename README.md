@@ -46,6 +46,7 @@ Other options: `--port N` (default `7777`).
 - **Files.** A file manager in the browser, SFTP, FTP over TLS, and cron jobs.
 - **VPS.** LXC containers with Incus, on 11 distributions. Includes a browser console, resizing, reinstalls, snapshots and monthly traffic limits.
 - **Backups.** Files, mail and databases, backed up on demand or on a schedule. Download and restore from the panel, with an optional off-site copy over SFTP or to S3.
+- **Billing.** A [WHMCS module](integrations/whmcs) creates, suspends and terminates accounts, and signs customers in with a one-time link.
 - **Server.** UFW firewall rules, Fail2ban, system and Webcpl updates, a certificate for the hostname (HTTPS for the panel and mail), and 24-hour charts of CPU, memory, disk and network.
 
 ## Limits
