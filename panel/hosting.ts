@@ -135,6 +135,8 @@ export async function syncPhp(u: UserRow) {
   })
 }
 
+export const htpasswdFile = (u: UserRow, d: DomainRow, id: number) => `/etc/webcpl/htpasswd/${u.username}/${d.name}-${id}`
+
 export function siteFor(u: UserRow, d: DomainRow) {
   const aliases: string[] = JSON.parse(d.aliases)
   return {
@@ -147,6 +149,9 @@ export function siteFor(u: UserRow, d: DomainRow) {
     forceHttps: !!d.force_https,
     suspended: !!u.suspended,
     overBandwidth: !!u.over_bandwidth,
+    redirect: d.redirect ? JSON.parse(d.redirect) : null,
+    errorPages: JSON.parse(d.error_pages || '{}'),
+    protected: (JSON.parse(d.protected || '[]') as { id: number; path: string }[]).map((p) => ({ path: p.path, file: htpasswdFile(u, d, p.id) })),
     appPort: db.query<{ port: number }, [number]>('SELECT port FROM apps WHERE domain_id = ?').get(d.id)?.port ?? null,
   }
 }

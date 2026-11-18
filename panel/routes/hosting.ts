@@ -42,6 +42,9 @@ function publicDomain(d: DomainRow) {
     aliases: JSON.parse(d.aliases) as string[],
     ssl: d.ssl_cert ? { expiresAt: d.ssl_expires_at } : null,
     forceHttps: !!d.force_https,
+    redirect: d.redirect ? (JSON.parse(d.redirect) as { to: string; code: number; keepPath: boolean }) : null,
+    errorPages: JSON.parse(d.error_pages || '{}') as Record<string, string>,
+    protected: (JSON.parse(d.protected || '[]') as { id: number; path: string; users: { name: string }[] }[]).map((p) => ({ id: p.id, path: p.path, users: p.users.map((x) => x.name) })),
     createdAt: d.created_at,
   }
 }
@@ -174,6 +177,109 @@ route('PATCH', '/api/domains/:id', async (ctx) => {
   }
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'updated website', detail: d.name, ip: ctx.ip })
   return { domain: publicDomain(updated) }
+})
+
+/** Redirect and error pages: website settings that only change the web server's config. */
+route('PATCH', '/api/domains/:id/rules', async (ctx) => {
+  const u = me(ctx)
+  const d = ownDomain(u, ctx.params.id)
+  let redirect = d.redirect
+  if (ctx.body.redirect !== undefined) {
+    const r = ctx.body.redirect as Record<string, unknown> | null
+    if (!r || !r.to) redirect = null
+    else {
+      const to = String(r.to).trim()
+      if (!/^https?:\/\/[^\s"'`$\\{};<>]+$/.test(to) || to.length > 500) throw new HttpError(400, 'Give a full address that starts with https:// or http://.', 'bad_redirect')
+      if (new URL(to).hostname === d.name) throw new HttpError(400, 'A website cannot redirect to itself.', 'bad_redirect')
+      redirect = JSON.stringify({ to, code: r.code === 302 ? 302 : 301, keepPath: r.keepPath !== false })
+    }
+  }
+  let errorPages = d.error_pages
+  if (ctx.body.errorPages !== undefined) {
+    const pages: Record<string, string> = {}
+    for (const [code, page] of Object.entries((ctx.body.errorPages ?? {}) as Record<string, unknown>)) {
+      const path = String(page ?? '').trim()
+      if (!path) continue
+      if (!['403', '404', '500', '503'].includes(code)) throw new HttpError(400, 'Error pages can be set for 403, 404, 500 and 503.', 'bad_code')
+      if (!/^\/[A-Za-z0-9._~\/-]{0,200}$/.test(path) || path.split('/').includes('..')) throw new HttpError(400, 'Give a page of this website, like /404.html.', 'bad_page')
+      pages[code] = path
+    }
+    errorPages = JSON.stringify(pages)
+  }
+  db.query('UPDATE domains SET redirect = ?, error_pages = ? WHERE id = ?').run(redirect, errorPages, d.id)
+  try {
+    await hosting.writeSite(u, ownDomain(u, d.id))
+  } catch (error) {
+    db.query('UPDATE domains SET redirect = ?, error_pages = ? WHERE id = ?').run(d.redirect, d.error_pages, d.id)
+    throw error
+  }
+  logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'updated website', detail: d.name, ip: ctx.ip })
+  return { domain: publicDomain(ownDomain(u, d.id)) }
+})
+
+// ---- protected folders ---------------------------------------------------------------------------
+
+type Protected = { id: number; path: string; users: { name: string; hash: string }[] }
+
+async function saveProtected(u: UserRow, d: DomainRow, list: Protected[], before: Protected[]) {
+  for (const p of list) await agent('htpasswd.write', { user: u.username, file: hosting.htpasswdFile(u, d, p.id), entries: p.users })
+  db.query('UPDATE domains SET protected = ? WHERE id = ?').run(JSON.stringify(list), d.id)
+  await hosting.writeSite(u, ownDomain(u, d.id))
+  for (const old of before) if (!list.some((p) => p.id === old.id)) await agent('htpasswd.delete', { user: u.username, file: hosting.htpasswdFile(u, d, old.id) }).catch(() => null)
+}
+
+route('POST', '/api/domains/:id/protected', async (ctx) => {
+  const u = me(ctx)
+  const d = ownDomain(u, ctx.params.id)
+  const path = '/' + String(ctx.body.path ?? '').trim().replace(/^\/+|\/+$/g, '')
+  if (!/^\/[A-Za-z0-9._~\/-]{0,200}$/.test(path) || path.split('/').includes('..')) throw new HttpError(400, 'Give a folder of the website, like /admin.', 'bad_path')
+  const name = String(ctx.body.username ?? '').trim()
+  if (!/^[A-Za-z0-9._-]{1,32}$/.test(name)) throw new HttpError(400, 'Use up to 32 letters, digits, dots, dashes or underscores for the username.', 'bad_username')
+  const password = String(ctx.body.password ?? '')
+  if (password.length < 8 || password.length > 72) throw new HttpError(400, 'Use 8 to 72 characters for the password.', 'bad_password')
+  // Apache reads bcrypt with the $2y$ prefix.
+  const hash = (await Bun.password.hash(password, { algorithm: 'bcrypt', cost: 10 })).replace(/^\$2[ab]\$/, '$2y$')
+  const before = JSON.parse(d.protected || '[]') as Protected[]
+  const list = before.map((p) => ({ ...p, users: [...p.users] }))
+  let folder = list.find((p) => p.path === path)
+  if (!folder) {
+    if (list.length >= 50) throw new HttpError(400, 'Up to 50 protected folders per website.', 'too_many')
+    folder = { id: Math.max(0, ...list.map((p) => p.id)) + 1, path, users: [] }
+    list.push(folder)
+  }
+  folder.users = [...folder.users.filter((x) => x.name !== name), { name, hash }]
+  await saveProtected(u, d, list, before)
+  logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'protected a folder', detail: `${d.name}${path}`, ip: ctx.ip })
+  return { domain: publicDomain(ownDomain(u, d.id)) }
+})
+
+route('DELETE', '/api/domains/:id/protected', async (ctx) => {
+  const u = me(ctx)
+  const d = ownDomain(u, ctx.params.id)
+  const before = JSON.parse(d.protected || '[]') as Protected[]
+  const path = String(ctx.body.path ?? '')
+  const name = ctx.body.username ? String(ctx.body.username) : null
+  const list = before
+    .map((p) => (p.path === path && name ? { ...p, users: p.users.filter((x) => x.name !== name) } : p))
+    .filter((p) => p.path !== path || (name && p.users.length))
+  await saveProtected(u, d, list, before)
+  return { domain: publicDomain(ownDomain(u, d.id)) }
+})
+
+// ---- visitor statistics --------------------------------------------------------------------------
+
+route('GET', '/api/domains/:id/stats', async (ctx) => {
+  const u = me(ctx)
+  const d = ownDomain(u, ctx.params.id)
+  const { html } = await agent<{ html: string }>('stats.report', { user: u.username, name: d.name }, 150_000)
+  // Opened in its own tab, sandboxed away from the panel: it may run its own scripts, nothing else.
+  return new Response(html, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:",
+      'Cache-Control': 'no-store',
+    },
+  })
 })
 
 route('POST', '/api/domains/:id/ssl', async (ctx) => {

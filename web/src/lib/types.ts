@@ -82,6 +82,9 @@ export interface Website {
   aliases: string[]
   ssl: { expiresAt: number | null } | null
   forceHttps: boolean
+  redirect: { to: string; code: number; keepPath: boolean } | null
+  errorPages: Record<string, string>
+  protected: { id: number; path: string; users: string[] }[]
   createdAt: number
 }
 

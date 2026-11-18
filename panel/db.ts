@@ -191,6 +191,9 @@ for (const statement of [
   "ALTER TABLE databases ADD COLUMN engine TEXT NOT NULL DEFAULT 'mariadb'",
   'ALTER TABLE users ADD COLUMN redis_enabled INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE users ADD COLUMN over_bandwidth INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE domains ADD COLUMN redirect TEXT',
+  "ALTER TABLE domains ADD COLUMN error_pages TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE domains ADD COLUMN protected TEXT NOT NULL DEFAULT '[]'",
 ]) {
   try {
     db.exec(statement)
@@ -241,6 +244,12 @@ export interface DomainRow {
   ssl_key: string | null
   ssl_expires_at: number | null
   force_https: number
+  /** JSON {to, code, keepPath} or null. */
+  redirect: string | null
+  /** JSON {"404": "/404.html"}. */
+  error_pages: string
+  /** JSON [{id, path, users: [{name, hash}]}]. */
+  protected: string
   created_at: number
 }
 

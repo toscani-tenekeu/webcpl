@@ -8,6 +8,7 @@
 import { chmodSync, chownSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { startConsoleSocket } from './console.ts'
+import { ensureLogrotate } from './logrotate.ts'
 import { operations } from './ops.ts'
 
 const SOCKET = process.env.WEBCPL_AGENT_SOCKET ?? '/run/webcpl/agent.sock'
@@ -89,4 +90,5 @@ const gid = groupId(GROUP)
 if (gid !== null) chownSync(SOCKET, 0, gid)
 chmodSync(SOCKET, 0o660)
 startConsoleSocket(gid)
+ensureLogrotate()
 console.log(`Webcpl agent listening on ${SOCKET}`)

@@ -105,7 +105,7 @@ component() { # component name function
 
 say "Installing base packages"
 apt-get update -q
-"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone ufw fail2ban python3-systemd
+"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone ufw fail2ban python3-systemd goaccess
 
 if ! command -v bun >/dev/null && [ ! -x /usr/local/bin/bun ]; then
   say "Installing Bun"
