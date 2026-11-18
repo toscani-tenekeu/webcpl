@@ -3,6 +3,9 @@
 import { readFileSync, statfsSync } from 'node:fs'
 import os from 'node:os'
 import { componentList, DEFAULT_CHOICE, type ComponentChoice } from '../shared/components.ts'
+import { fileOps } from './files.ts'
+import { hostingOps } from './hosting.ts'
+import { serviceOps } from './services.ts'
 
 type Args = Record<string, unknown>
 type Operation = (args: Args) => Promise<unknown> | unknown
@@ -78,7 +81,18 @@ function managedServices() {
 const SERVICE_ACTIONS = new Set(['start', 'stop', 'restart', 'reload'])
 
 export const operations: Record<string, Operation> = {
+  ...hostingOps,
+  ...serviceOps,
+  ...fileOps,
+
   'agent.ping': () => ({ pong: true, version: process.env.WEBCPL_VERSION ?? null }),
+
+  /** PHP versions installed on the server, and the server's main addresses for new DNS zones. */
+  'hosting.info': () => ({
+    php: choice().php,
+    addresses: addresses(),
+    components: choice(),
+  }),
 
   'system.info': () => {
     const cpus = os.cpus()

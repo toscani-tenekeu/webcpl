@@ -1,6 +1,7 @@
 import { cleanLimits, type PlanKind } from '../../shared/limits.ts'
 import { isAdmin, requireRole } from '../access.ts'
-import { db, logActivity, now, planById, type PlanRow } from '../db.ts'
+import { db, logActivity, now, planById, type PlanRow, type UserRow } from '../db.ts'
+import { syncLimits } from '../hosting.ts'
 import { HttpError } from '../errors.ts'
 import { route, type Ctx } from '../http.ts'
 
@@ -59,13 +60,19 @@ route('POST', '/api/plans', (ctx) => {
   return { plan: publicPlan(planById(Number(result.lastInsertRowid))!) }
 })
 
-route('PATCH', '/api/plans/:id', (ctx) => {
+route('PATCH', '/api/plans/:id', async (ctx) => {
   const plan = ownPlan(ctx)
   const name = ctx.body.name === undefined ? plan.name : String(ctx.body.name).trim().slice(0, 60)
   if (!name) throw new HttpError(400, 'Give the plan a name.', 'bad_name')
   const cleaned = ctx.body.limits === undefined ? { limits: JSON.parse(plan.limits) } : cleanLimits(plan.kind, ctx.body.limits)
   if ('error' in cleaned) throw new HttpError(400, cleaned.error, 'bad_limit')
   db.query('UPDATE plans SET name = ?, limits = ? WHERE id = ?').run(name, JSON.stringify(cleaned.limits), plan.id)
+  // New limits reach every hosting account on the plan at once.
+  if (plan.kind === 'hosting') {
+    for (const account of db.query<UserRow, [number]>('SELECT * FROM users WHERE hosting_plan_id = ? AND linux_user = 1').all(plan.id)) {
+      await syncLimits(account).catch((error: Error) => console.error(`limits for ${account.username}: ${error.message}`))
+    }
+  }
   logActivity({ actorId: ctx.user!.id, subjectId: ctx.user!.id, action: 'updated plan', detail: name, ip: ctx.ip })
   return { plan: publicPlan(planById(plan.id)!) }
 })

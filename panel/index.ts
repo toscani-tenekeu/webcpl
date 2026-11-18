@@ -6,6 +6,9 @@ import './routes/auth.ts'
 import './routes/accounts.ts'
 import './routes/plans.ts'
 import './routes/server.ts'
+import './routes/hosting.ts'
+import './routes/files.ts'
+import { startUsage } from './usage.ts'
 
 async function serveStatic(url: URL) {
   const requested = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
@@ -18,8 +21,10 @@ async function serveStatic(url: URL) {
 }
 
 ensureAdmin()
+startUsage()
 
 const server = Bun.serve({
+  maxRequestBodySize: 300 * 1024 * 1024,
   hostname: config.host,
   port: config.port,
   async fetch(req, srv) {

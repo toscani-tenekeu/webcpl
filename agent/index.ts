@@ -47,13 +47,23 @@ mkdirSync(dirname(SOCKET), { recursive: true })
 if (existsSync(SOCKET)) rmSync(SOCKET)
 
 const buffers = new WeakMap<object, string>()
+/** What is left to write when a large reply does not fit in the socket at once. */
+const pending = new WeakMap<object, Buffer>()
+
+function send(socket: { write(data: Buffer): number }, text: string) {
+  const queued = pending.get(socket)
+  const data = queued ? Buffer.concat([queued, Buffer.from(text)]) : Buffer.from(text)
+  const written = socket.write(data)
+  if (written < data.length) pending.set(socket, data.subarray(Math.max(0, written)))
+  else pending.delete(socket)
+}
 
 Bun.listen({
   unix: SOCKET,
   socket: {
     data(socket, chunk) {
       let text = (buffers.get(socket) ?? '') + chunk.toString()
-      if (text.length > 1024 * 1024) {
+      if (text.length > 16 * 1024 * 1024) {
         socket.end()
         return
       }
@@ -61,10 +71,14 @@ Bun.listen({
       while (newline >= 0) {
         const line = text.slice(0, newline)
         text = text.slice(newline + 1)
-        if (line.trim()) void handle(line).then((reply) => socket.write(reply + '\n'))
+        if (line.trim()) void handle(line).then((reply) => send(socket, reply + '\n'))
         newline = text.indexOf('\n')
       }
       buffers.set(socket, text)
+    },
+    drain(socket) {
+      // send() takes what is still queued and writes as much as fits again.
+      if (pending.has(socket)) send(socket, '')
     },
   },
 })
