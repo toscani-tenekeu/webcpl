@@ -348,18 +348,29 @@ plugin {
 }
 namespace inbox {
   inbox = yes
-  mailbox Drafts { special_use = \Drafts
-    auto = subscribe }
-  mailbox Sent { special_use = \Sent
-    auto = subscribe }
-  mailbox Junk { special_use = \Junk
-    auto = subscribe }
-  mailbox Trash { special_use = \Trash
-    auto = subscribe }
+  mailbox Drafts {
+    special_use = \Drafts
+    auto = subscribe
+  }
+  mailbox Sent {
+    special_use = \Sent
+    auto = subscribe
+  }
+  mailbox Junk {
+    special_use = \Junk
+    auto = subscribe
+  }
+  mailbox Trash {
+    special_use = \Trash
+    auto = subscribe
+  }
+}
+# Webmail connects from the server itself and may sign in without TLS.
+remote 127.0.0.1 {
+  disable_plaintext_auth = no
 }
 DOVECOT
-  # Local connections (webmail) may sign in without TLS.
-  printf 'remote 127.0.0.1 {\n  disable_plaintext_auth = no\n  ssl = yes\n}\n' > /etc/dovecot/conf.d/99-webcpl-local.conf
+  rm -f /etc/dovecot/conf.d/99-webcpl-local.conf
 
   install -d -o _rspamd -g _rspamd /var/lib/rspamd/dkim
   cat > /etc/rspamd/local.d/dkim_signing.conf <<'RSPAMD'
