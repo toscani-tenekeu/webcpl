@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BanIcon, BoxIcon, GlobeIcon, LayersIcon, ServerIcon, UserCogIcon, UsersIcon } from '@lucide/vue'
+import { BanIcon, BoxIcon, ClockIcon, DatabaseIcon, FolderIcon, GlobeIcon, KeyRoundIcon, LayersIcon, ServerIcon, UserCogIcon, UsersIcon } from '@lucide/vue'
 import { computed } from 'vue'
 import LimitsSummary from '@/components/app/LimitsSummary.vue'
 import UsageBars from '@/components/app/UsageBars.vue'
@@ -15,6 +15,13 @@ import { t } from '@/lib/i18n'
 import type { ResellerUsage, ServerInfo } from '@/lib/types'
 
 const role = computed(() => user.value?.role)
+const HOSTING_LINKS = [
+  { to: '/websites', label: 'Websites', icon: GlobeIcon },
+  { to: '/files', label: 'Files', icon: FolderIcon },
+  { to: '/databases', label: 'Databases', icon: DatabaseIcon },
+  { to: '/cron', label: 'Cron jobs', icon: ClockIcon },
+  { to: '/access', label: 'Access and PHP', icon: KeyRoundIcon },
+]
 const { data, error } = useResource<{ counts?: Record<string, number>; usage?: ResellerUsage }>('/api/dashboard', 30_000)
 const server = role.value === 'admin' ? useResource<{ info: ServerInfo | { error: string } }>('/api/server', 30_000) : null
 const info = computed(() => {
@@ -116,8 +123,15 @@ const tiles = computed(() => {
       <CardContent><LimitsSummary kind="vps" :limits="user.vpsPlan.limits" /></CardContent>
     </Card>
   </div>
-  <p v-if="role === 'user'" class="text-muted-foreground text-sm">
-    {{ t('Websites, databases, mail and VPS management arrive in the next versions of this panel.') }}
-  </p>
+  <div v-if="user?.hostingPlan" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <RouterLink v-for="link in HOSTING_LINKS" :key="link.to" :to="link.to">
+      <Card class="hover:bg-muted/40 h-full gap-1 py-4 transition-colors">
+        <CardContent class="flex items-center gap-3 px-4">
+          <component :is="link.icon" class="text-muted-foreground size-5" />
+          <span class="text-sm font-medium">{{ t(link.label) }}</span>
+        </CardContent>
+      </Card>
+    </RouterLink>
+  </div>
   <Skeleton v-if="!data && !error" class="h-32 rounded-xl" />
 </template>

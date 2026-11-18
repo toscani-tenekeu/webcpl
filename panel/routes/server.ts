@@ -23,7 +23,7 @@ route('POST', '/api/server/services/:name/:action', async (ctx) => {
   return result
 })
 
-const SETTINGS = ['panel_name', 'hostname', 'nameserver1', 'nameserver2', 'support_email']
+const SETTINGS = ['panel_name', 'hostname', 'nameserver1', 'nameserver2', 'support_email', 'public_ip']
 
 route('GET', '/api/settings', (ctx) => {
   requireRole(ctx.user!, 'admin')
@@ -39,6 +39,7 @@ route('PUT', '/api/settings', (ctx) => {
   for (const key of ['hostname', 'nameserver1', 'nameserver2']) {
     if (next[key] && !host.test(next[key]!)) throw new HttpError(400, `${key === 'hostname' ? 'Hostname' : 'Name server'} must be a full name like panel.example.com.`, 'bad_host')
   }
+  if (next.public_ip && !/^(\d{1,3}\.){3}\d{1,3}$/.test(next.public_ip)) throw new HttpError(400, 'Enter the server’s public IPv4 address, like 203.0.113.10.', 'bad_ip')
   if (next.support_email && !/^\S+@\S+\.\S+$/.test(next.support_email)) throw new HttpError(400, 'Enter a valid email address.', 'bad_email')
   for (const [key, value] of Object.entries(next)) setSetting(key, value)
   logActivity({ actorId: ctx.user!.id, action: 'changed panel settings', ip: ctx.ip })

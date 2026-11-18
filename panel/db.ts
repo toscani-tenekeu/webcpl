@@ -77,7 +77,61 @@ CREATE TABLE IF NOT EXISTS activity (
 );
 CREATE INDEX IF NOT EXISTS activity_subject ON activity(subject_id, at);
 CREATE INDEX IF NOT EXISTS activity_actor ON activity(actor_id, at);
+
+-- Websites. A subdomain has a parent; its DNS record lives in the parent's zone.
+CREATE TABLE IF NOT EXISTS domains (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL UNIQUE,
+  parent_id INTEGER REFERENCES domains(id) ON DELETE CASCADE,
+  docroot TEXT NOT NULL,
+  php_version TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]',
+  ssl_cert TEXT,
+  ssl_key TEXT,
+  ssl_expires_at INTEGER,
+  force_https INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS databases (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL UNIQUE,
+  remote INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cron_jobs (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  schedule TEXT NOT NULL,
+  command TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- Bandwidth per calendar month, disk as last measured.
+CREATE TABLE IF NOT EXISTS usage (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  period TEXT NOT NULL,
+  bandwidth INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, period)
+);
 `)
+
+// Columns added after 0.1.
+for (const statement of [
+  'ALTER TABLE users ADD COLUMN linux_user INTEGER NOT NULL DEFAULT 0',
+  "ALTER TABLE users ADD COLUMN php_settings TEXT NOT NULL DEFAULT '{}'",
+  'ALTER TABLE users ADD COLUMN disk_used INTEGER',
+  'ALTER TABLE users ADD COLUMN disk_measured_at INTEGER',
+]) {
+  try {
+    db.exec(statement)
+  } catch {
+    // Already there.
+  }
+}
 
 export const now = () => Date.now()
 
@@ -101,6 +155,25 @@ export interface UserRow {
   note: string
   created_at: number
   last_login_at: number | null
+  linux_user: number
+  php_settings: string
+  disk_used: number | null
+  disk_measured_at: number | null
+}
+
+export interface DomainRow {
+  id: number
+  user_id: number
+  name: string
+  parent_id: number | null
+  docroot: string
+  php_version: string
+  aliases: string
+  ssl_cert: string | null
+  ssl_key: string | null
+  ssl_expires_at: number | null
+  force_https: number
+  created_at: number
 }
 
 export interface PlanRow {

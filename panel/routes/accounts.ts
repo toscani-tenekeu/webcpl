@@ -2,6 +2,7 @@ import { assertResellerRoom, canManage, isAdmin, managedAccount, planForAccount,
 import * as auth from '../auth.ts'
 import { db, logActivity, now, userById, type UserRow } from '../db.ts'
 import { HttpError } from '../errors.ts'
+import * as hosting from '../hosting.ts'
 import { route, type Ctx } from '../http.ts'
 
 // Account names become Linux user names for hosting, so they follow the same rules.
@@ -83,11 +84,18 @@ route('POST', '/api/accounts', async (ctx) => {
       ctx.body.mustChangePassword === false ? 0 : 1, String(ctx.body.note ?? '').slice(0, 500), now(),
     )
   const id = Number(result.lastInsertRowid)
+  // Hosting needs the Linux user at once; if the server refuses, the account is not kept.
+  try {
+    await hosting.provision(userById(id)!, password)
+  } catch (error) {
+    db.query('DELETE FROM users WHERE id = ?').run(id)
+    throw error
+  }
   logActivity({ actorId: actor.id, subjectId: id, action: role === 'reseller' ? 'created reseller' : 'created account', detail: username, ip: ctx.ip })
   return { account: summary(userById(id)!), password }
 })
 
-route('PATCH', '/api/accounts/:id', (ctx) => {
+route('PATCH', '/api/accounts/:id', async (ctx) => {
   const actor = ctx.user!
   const target = managedAccount(actor, Number(ctx.params.id))
   const email = ctx.body.email === undefined ? target.email : String(ctx.body.email).trim()
@@ -97,28 +105,36 @@ route('PATCH', '/api/accounts/:id', (ctx) => {
   const owner = target.owner_id!
   const pick = (key: string, kind: 'hosting' | 'vps' | 'reseller', current: number | null) =>
     key in ctx.body ? (planForAccount(owner, ctx.body[key], kind)?.id ?? null) : current
-  const hosting = pick('hostingPlanId', 'hosting', target.hosting_plan_id)
+  const hostingId = pick('hostingPlanId', 'hosting', target.hosting_plan_id)
   const vps = pick('vpsPlanId', 'vps', target.vps_plan_id)
   const reseller = target.role === 'reseller' ? pick('resellerPlanId', 'reseller', target.reseller_plan_id) : null
   if (target.role === 'reseller' && !reseller) throw new HttpError(400, 'A reseller needs a reseller plan.', 'bad_plan')
-  if (target.role === 'user' && !hosting && !vps) throw new HttpError(400, 'Keep a hosting plan, a VPS plan or both.', 'bad_plan')
+  if (target.role === 'user' && !hostingId && !vps) throw new HttpError(400, 'Keep a hosting plan, a VPS plan or both.', 'bad_plan')
 
   // The account's reseller (whoever changes it) must stay within its caps.
   const ownerRow = userById(owner)
-  if (ownerRow?.role === 'reseller') assertResellerRoom(ownerRow, { accountId: target.id, hostingPlanId: hosting, vpsPlanId: vps })
+  if (ownerRow?.role === 'reseller') assertResellerRoom(ownerRow, { accountId: target.id, hostingPlanId: hostingId, vpsPlanId: vps })
 
+  if (target.linux_user && !hostingId) throw new HttpError(409, 'This account has websites on the server. Delete the account to remove its hosting.', 'has_hosting')
   db.query('UPDATE users SET email = ?, note = ?, hosting_plan_id = ?, vps_plan_id = ?, reseller_plan_id = ? WHERE id = ?').run(
-    email, note, hosting, vps, reseller, target.id,
+    email, note, hostingId, vps, reseller, target.id,
   )
+  const updated = userById(target.id)!
+  if (updated.linux_user) {
+    if (hostingId !== target.hosting_plan_id) await hosting.syncLimits(updated)
+  } else {
+    await hosting.provision(updated)
+  }
   logActivity({ actorId: actor.id, subjectId: target.id, action: 'updated account', detail: target.username, ip: ctx.ip })
   return { account: summary(userById(target.id)!) }
 })
 
-route('POST', '/api/accounts/:id/suspend', (ctx) => {
+route('POST', '/api/accounts/:id/suspend', async (ctx) => {
   const target = managedAccount(ctx.user!, Number(ctx.params.id))
   const reason = String(ctx.body.reason ?? '').trim().slice(0, 200)
   db.query('UPDATE users SET suspended = 1, suspended_reason = ? WHERE id = ?').run(reason, target.id)
   auth.destroyUserSessions(target.id)
+  await hosting.suspend(userById(target.id)!)
   // Suspending a reseller suspends its customers' access too.
   if (target.role === 'reseller') {
     for (const customer of db.query<{ id: number }, [number]>('SELECT id FROM users WHERE owner_id = ?').all(target.id)) auth.destroyUserSessions(customer.id)
@@ -127,9 +143,10 @@ route('POST', '/api/accounts/:id/suspend', (ctx) => {
   return { account: summary(userById(target.id)!) }
 })
 
-route('POST', '/api/accounts/:id/unsuspend', (ctx) => {
+route('POST', '/api/accounts/:id/unsuspend', async (ctx) => {
   const target = managedAccount(ctx.user!, Number(ctx.params.id))
   db.query("UPDATE users SET suspended = 0, suspended_reason = '' WHERE id = ?").run(target.id)
+  await hosting.unsuspend(userById(target.id)!)
   logActivity({ actorId: ctx.user!.id, subjectId: target.id, action: 'unsuspended account', detail: target.username, ip: ctx.ip })
   return { account: summary(userById(target.id)!) }
 })
@@ -138,6 +155,7 @@ route('POST', '/api/accounts/:id/reset-password', async (ctx) => {
   const target = managedAccount(ctx.user!, Number(ctx.params.id))
   const password = auth.generatePassword(16)
   db.query('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?').run(await auth.hashPassword(password), target.id)
+  await hosting.syncPassword(target, password)
   auth.destroyUserSessions(target.id)
   logActivity({ actorId: ctx.user!.id, subjectId: target.id, action: 'reset password', detail: target.username, ip: ctx.ip })
   return { password }
@@ -150,11 +168,12 @@ route('POST', '/api/accounts/:id/reset-2fa', (ctx) => {
   return { ok: true }
 })
 
-route('DELETE', '/api/accounts/:id', (ctx) => {
+route('DELETE', '/api/accounts/:id', async (ctx) => {
   const target = managedAccount(ctx.user!, Number(ctx.params.id))
   if (String(ctx.body.confirm ?? '') !== target.username) throw new HttpError(400, 'Type the username to confirm.', 'confirm')
   const customers = db.query<{ n: number }, [number]>('SELECT COUNT(*) AS n FROM users WHERE owner_id = ?').get(target.id)!.n
   if (customers) throw new HttpError(409, `This reseller still has ${customers} account(s). Delete or move them first.`, 'has_accounts')
+  await hosting.deprovision(target)
   db.query('DELETE FROM plans WHERE owner_id = ?').run(target.id)
   db.query('DELETE FROM users WHERE id = ?').run(target.id)
   logActivity({ actorId: ctx.user!.id, action: 'deleted account', detail: target.username, ip: ctx.ip })

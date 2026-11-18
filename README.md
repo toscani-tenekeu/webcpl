@@ -39,7 +39,12 @@ Other options: `--port N` (default `7777`).
 
 **0.1** — three account levels (admin, reseller, user), hosting, VPS and reseller plans with reseller caps, log in as, suspend, two-factor sign-in, API keys, activity log, server and service overview, English and French.
 
-Next: websites and PHP, DNS, SSL and databases; then VPS, more databases, app runtimes, mail and backups.
+**0.2**: shared hosting.
+- Websites with their own PHP version and PHP-FPM pool per account, `.htaccess`, subdomains, aliases and Let’s Encrypt.
+- A DNS zone per domain, MariaDB databases, a file manager, cron jobs and SFTP.
+- CPU, memory and process limits per account.
+
+Next: VPS, more databases, app runtimes, mail and backups.
 
 ## Manage
 

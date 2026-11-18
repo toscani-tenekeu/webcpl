@@ -105,7 +105,7 @@ component() { # component name function
 
 say "Installing base packages"
 apt-get update -q
-"${APT[@]}" install ca-certificates curl git unzip gnupg lsb-release acl sudo openssh-server
+"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server
 
 if ! command -v bun >/dev/null && [ ! -x /usr/local/bin/bun ]; then
   say "Installing Bun"
@@ -116,23 +116,64 @@ BUN=/usr/local/bin/bun
 "$BUN" --version >/dev/null || die "Bun does not run on this system."
 
 id webcpl >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin webcpl
+
+# Accounts without SSH in their plan can still use SFTP: this group gets SFTP only.
+getent group webcpl-sftp >/dev/null || groupadd --system webcpl-sftp
+if [ -d /etc/ssh/sshd_config.d ] && [ ! -f /etc/ssh/sshd_config.d/50-webcpl.conf ]; then
+  cat > /etc/ssh/sshd_config.d/50-webcpl.conf <<'SSHD'
+# Written by the Webcpl installer.
+Match Group webcpl-sftp
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no
+SSHD
+  sshd -t && (systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true)
+fi
 install -d -m 755 "$CONF"
 install -d -m 700 -o webcpl -g webcpl "$DATA"
 
 # ---- components -------------------------------------------------------------------------------
 
 install_web() {
-  "${APT[@]}" install nginx apache2 || return 1
+  "${APT[@]}" install nginx apache2 certbot || return 1
   # Apache sits behind nginx on the loopback, so .htaccess works while nginx serves the outside.
   sed -i 's/^Listen 80$/Listen 127.0.0.1:8080/; s/^\(\s*\)Listen 443$/\1# Listen 443 (nginx handles TLS)/' /etc/apache2/ports.conf
-  sed -i 's/<VirtualHost \*:80>/<VirtualHost 127.0.0.1:8080>/' /etc/apache2/sites-available/000-default.conf
-  a2enmod -q proxy_fcgi setenvif rewrite headers remoteip expires >/dev/null
-  install -d /var/www/webcpl-default
+  a2enmod -q proxy_fcgi setenvif rewrite headers remoteip expires alias >/dev/null
+  cat > /etc/apache2/conf-available/webcpl.conf <<'APACHE'
+# Written by the Webcpl installer: visitors' real addresses come from nginx.
+RemoteIPHeader X-Forwarded-For
+RemoteIPInternalProxy 127.0.0.1
+ServerTokens Prod
+ServerSignature Off
+APACHE
+  a2enconf -q webcpl >/dev/null
+  install -d /etc/apache2/webcpl-preview
+  # The first virtual host answers for the server's IP: previews of accounts (http://IP/~user).
+  cat > /etc/apache2/sites-available/000-default.conf <<'APACHE'
+<VirtualHost 127.0.0.1:8080>
+    ServerName webcpl-default
+    DocumentRoot /var/www/webcpl-default
+    IncludeOptional /etc/apache2/webcpl-preview/*.conf
+</VirtualHost>
+APACHE
+  a2ensite -q 000-default >/dev/null
+  install -d /var/www/webcpl-default /var/www/webcpl-acme /var/log/webcpl
   cat > /var/www/webcpl-default/index.html <<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Webcpl</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center}</style></head>
 <body><main><h1>It works</h1><p>This server is managed with Webcpl. No website is set up on this address yet.</p></main></body></html>
 HTML
+  cat > /var/www/webcpl-default/webcpl-suspended.html <<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Suspended</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center}</style></head>
+<body><main><h1>This website is suspended</h1><p>Please contact the website's owner.</p></main></body></html>
+HTML
+  cat > /etc/nginx/conf.d/webcpl.conf <<'NGINX'
+# Written by the Webcpl installer.
+log_format webcpl_bytes '$bytes_sent $request_length';
+server_names_hash_bucket_size 128;
+server_tokens off;
+NGINX
   cat > /etc/nginx/sites-available/webcpl-default <<'NGINX'
 # Answers for addresses and names that no website claims yet.
 server {
@@ -140,12 +181,21 @@ server {
     listen [::]:80 default_server;
     server_name _;
     root /var/www/webcpl-default;
+    client_max_body_size 256m;
+    location /.well-known/acme-challenge/ { root /var/www/webcpl-acme; }
+    # Account previews (http://IP/~user) are served by Apache with the account's PHP.
+    location ~ ^/~[a-z] {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
     location / { try_files $uri /index.html; }
 }
 NGINX
   rm -f /etc/nginx/sites-enabled/default
   ln -sf /etc/nginx/sites-available/webcpl-default /etc/nginx/sites-enabled/webcpl-default
-  nginx -t -q && systemctl reload-or-restart nginx && systemctl restart apache2 && systemctl enable -q nginx apache2
+  nginx -t -q && systemctl reload-or-restart nginx && apache2ctl configtest && systemctl restart apache2 && systemctl enable -q nginx apache2
 }
 
 php_repo() {
@@ -284,8 +334,10 @@ fi
 VERSION=$(grep -m1 '"version"' "$APP/package.json" | cut -d'"' -f4)
 (cd "$APP" && "$BUN" install --frozen-lockfile >/dev/null && "$BUN" run build >/dev/null) || die "the interface could not be built."
 
+PUBLIC_IP=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 cat > "$CONF/webcpl.env" <<ENV
 NODE_ENV=production
+WEBCPL_PUBLIC_IP=$PUBLIC_IP
 WEBCPL_PORT=$PORT
 WEBCPL_HOST=0.0.0.0
 WEBCPL_DATA=$DATA
@@ -375,7 +427,7 @@ fi
 # ---- done -----------------------------------------------------------------------------------------
 
 trap - ERR
-IP=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+IP="$PUBLIC_IP"
 PASSFILE="$DATA/initial-admin-password"
 echo
 echo "────────────────────────────────────────────────────────"

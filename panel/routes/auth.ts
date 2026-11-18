@@ -3,6 +3,7 @@ import * as auth from '../auth.ts'
 import { version } from '../config.ts'
 import { db, getSetting, logActivity, userById, type UserRow } from '../db.ts'
 import { HttpError } from '../errors.ts'
+import { syncPassword } from '../hosting.ts'
 import { route, type Ctx } from '../http.ts'
 
 const DUMMY_HASH = auth.hashPasswordSync('not-a-real-password')
@@ -95,6 +96,7 @@ route('POST', '/api/account/password', async (ctx) => {
   }
   if (!auth.validPassword(ctx.body.password)) throw new HttpError(400, 'Use at least 10 characters.', 'weak_password')
   db.query('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(await auth.hashPassword(ctx.body.password), user.id)
+  await syncPassword(user, ctx.body.password)
   auth.destroyUserSessions(user.id, ctx.token)
   logActivity({ actorId: user.id, subjectId: user.id, action: 'changed password', ip: ctx.ip })
   return { ok: true }

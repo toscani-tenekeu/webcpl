@@ -13,9 +13,9 @@ import { panelName } from '@/composables/useSession'
 import { messageOf, put } from '@/lib/api'
 import { t } from '@/lib/i18n'
 
-type Settings = Record<'panel_name' | 'hostname' | 'nameserver1' | 'nameserver2' | 'support_email', string>
+type Settings = Record<'panel_name' | 'hostname' | 'nameserver1' | 'nameserver2' | 'support_email' | 'public_ip', string>
 const { data, error } = useResource<{ settings: Settings }>('/api/settings')
-const form = ref<Settings>({ panel_name: '', hostname: '', nameserver1: '', nameserver2: '', support_email: '' })
+const form = ref<Settings>({ panel_name: '', hostname: '', nameserver1: '', nameserver2: '', support_email: '', public_ip: '' })
 watch(data, (d) => { if (d) form.value = { ...d.settings, panel_name: d.settings.panel_name || 'Webcpl' } }, { immediate: true })
 const busy = ref(false)
 const formError = ref('')
@@ -58,12 +58,17 @@ async function save() {
     <Card>
       <CardHeader>
         <CardTitle>{{ t('Hostname and name servers') }}</CardTitle>
-        <CardDescription>{{ t('Optional. Point the names at this server first; certificates and DNS use them in the next versions.') }}</CardDescription>
+        <CardDescription>{{ t('Optional. Point the names at this server first; new DNS zones use these name servers.') }}</CardDescription>
       </CardHeader>
       <CardContent class="grid gap-4 sm:grid-cols-2">
-        <Field class="sm:col-span-2">
+        <Field>
           <FieldLabel for="s-host">{{ t('Server hostname') }}</FieldLabel>
           <Input id="s-host" v-model="form.hostname" class="font-mono" placeholder="panel.example.com" />
+        </Field>
+        <Field>
+          <FieldLabel for="s-ip">{{ t('Server public IP') }}</FieldLabel>
+          <Input id="s-ip" v-model="form.public_ip" class="font-mono" placeholder="203.0.113.10" />
+          <FieldDescription>{{ t('Websites and DNS records point to this address.') }}</FieldDescription>
         </Field>
         <Field>
           <FieldLabel for="s-ns1">{{ t('Name server 1') }}</FieldLabel>

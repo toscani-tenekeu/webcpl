@@ -72,3 +72,52 @@ export interface ServerInfo {
   disk: { total: number; free: number } | null
   addresses: { address: string; family: 4 | 6; interface: string }[]
 }
+
+export interface Website {
+  id: number
+  name: string
+  parentId: number | null
+  docroot: string
+  php: string
+  aliases: string[]
+  ssl: { expiresAt: number | null } | null
+  forceHttps: boolean
+  createdAt: number
+}
+
+export interface HostingInfo {
+  username: string
+  address: string
+  hostname: string | null
+  previewUrl: string
+  sftp: { host: string; port: number; username: string; ssh: boolean }
+  phpVersions: string[]
+  phpSettings: Record<string, string | boolean>
+  limits: Record<string, number | boolean | null>
+  usage: {
+    diskBytes: number | null
+    diskMeasuredAt: number | null
+    bandwidthBytes: number
+    domains: number
+    subdomains: number
+    databases: number
+    cron_jobs: number
+  }
+}
+
+export interface RRSet {
+  name: string
+  type: string
+  ttl: number
+  records: string[]
+}
+
+export interface FileEntry {
+  name: string
+  type: 'dir' | 'file' | 'link'
+  size: number
+  modified: number
+  mode: string
+  owner: string
+  target: string | null
+}

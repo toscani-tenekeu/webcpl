@@ -26,13 +26,15 @@ interface Route {
   parts: string[]
   handler: Handler
   guard: Guard
+  /** The handler reads the body itself (uploads). */
+  raw?: boolean
 }
 
 const routes: Route[] = []
 
 /** Registers a route; `signed-in` routes get ctx.user set or answer 401. */
-export function route(method: string, path: string, handler: Handler, guard: Guard = 'signed-in') {
-  routes.push({ method, parts: path.split('/').filter(Boolean), handler, guard })
+export function route(method: string, path: string, handler: Handler, guard: Guard = 'signed-in', options: { raw?: boolean } = {}) {
+  routes.push({ method, parts: path.split('/').filter(Boolean), handler, guard, raw: options.raw })
 }
 
 function match(method: string, path: string) {
@@ -109,7 +111,7 @@ export async function handleApi(req: Request, url: URL, server: Server<unknown>)
     }
     ctx.params = found.params
 
-    if (!['GET', 'HEAD'].includes(req.method)) {
+    if (!['GET', 'HEAD'].includes(req.method) && !found.route.raw) {
       const text = await req.text()
       if (text.length > 256 * 1024) throw new HttpError(413, 'Request too large.', 'too_large')
       if (text) {
@@ -123,6 +125,11 @@ export async function handleApi(req: Request, url: URL, server: Server<unknown>)
     }
 
     const result = await found.route.handler(ctx)
+    // A handler may answer with a file instead of JSON.
+    if (result instanceof Response) {
+      for (const [key, value] of Object.entries(SECURITY_HEADERS)) result.headers.set(key, value)
+      return result
+    }
     return json(result ?? { ok: true }, req.method === 'POST' && /^\/api\/(accounts|plans|account\/api-keys)$/.test(url.pathname) ? 201 : 200, ctx.headers)
   } catch (error) {
     if (error instanceof HttpError) return json({ error: error.message, code: error.code }, error.status, ctx.headers)
