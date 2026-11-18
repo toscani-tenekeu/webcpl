@@ -248,6 +248,10 @@ WantedBy=multi-user.target
   'site.write': async (args) => {
     const user = username(args)
     const site = siteFrom(user, args.site)
+    // Websockets to apps need this map once; older installs did not write it.
+    if (site.appPort && !existsSync('/etc/nginx/conf.d/webcpl-upgrade.conf')) {
+      writeAtomic('/etc/nginx/conf.d/webcpl-upgrade.conf', "map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n")
+    }
     await applyWebConfig(siteChanges(user, site))
     // The document root is created on first use, with a page that says the site works.
     const root = site.docroot
@@ -319,6 +323,8 @@ interface Site {
   ssl: { cert: string; key: string } | null
   forceHttps: boolean
   suspended: boolean
+  /** Set when the site is served by one of the account's apps instead of PHP. */
+  appPort: number | null
 }
 
 function siteFrom(user: string, input: unknown): Site {
@@ -337,7 +343,15 @@ function siteFrom(user: string, input: unknown): Site {
     ssl: ssl ? { cert: certPath(ssl.cert), key: certPath(ssl.key) } : null,
     forceHttps: s.forceHttps === true && !!ssl,
     suspended: s.suspended === true,
+    appPort: appPort(s.appPort),
   }
+}
+
+function appPort(value: unknown) {
+  if (value === null || value === undefined) return null
+  const port = Number(value)
+  if (!Number.isInteger(port) || port < 30000 || port > 39999) throw new Error('Invalid app port.')
+  return port
 }
 
 function siteChanges(user: string, site: Site): Change[] {
@@ -346,6 +360,18 @@ function siteChanges(user: string, site: Site): Change[] {
   const acme = `    location /.well-known/acme-challenge/ { root ${ACME_ROOT}; }`
   const body = site.suspended
     ? `    location / { return 503; }\n    error_page 503 /webcpl-suspended.html;\n    location = /webcpl-suspended.html { root /var/www/webcpl-default; internal; }`
+    : site.appPort
+    ? `    location / {
+        proxy_pass http://127.0.0.1:${site.appPort};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 300s;
+    }`
     : `    location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;

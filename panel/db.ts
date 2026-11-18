@@ -133,6 +133,20 @@ CREATE TABLE IF NOT EXISTS vps (
   created_at INTEGER NOT NULL,
   UNIQUE (user_id, name)
 );
+CREATE TABLE IF NOT EXISTS apps (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  runtime TEXT NOT NULL,
+  version TEXT NOT NULL,
+  root TEXT NOT NULL,
+  command TEXT NOT NULL,
+  port INTEGER NOT NULL UNIQUE,
+  env TEXT NOT NULL DEFAULT '{}',
+  domain_id INTEGER REFERENCES domains(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (user_id, name)
+);
 CREATE TABLE IF NOT EXISTS usage (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   period TEXT NOT NULL,
@@ -220,6 +234,20 @@ export interface VpsRow {
   last_rx: number
   last_tx: number
   throttled: number
+  created_at: number
+}
+
+export interface AppRow {
+  id: number
+  user_id: number
+  name: string
+  runtime: 'node' | 'python' | 'ruby'
+  version: string
+  root: string
+  command: string
+  port: number
+  env: string
+  domain_id: number | null
   created_at: number
 }
 

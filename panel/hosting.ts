@@ -75,6 +75,9 @@ export function redisMemory(u: UserRow) {
 export async function suspend(u: UserRow) {
   if (!u.linux_user) return
   if (u.redis_enabled) await agent('redis.power', { user: u.username, on: false }).catch(() => null)
+  for (const app of db.query<{ name: string }, [number]>('SELECT name FROM apps WHERE user_id = ?').all(u.id)) {
+    await agent('app.power', { user: u.username, name: app.name, action: 'stop' }).catch(() => null)
+  }
   await agent('account.suspend', { user: u.username })
   await writeAllSites(userById(u.id)!)
 }
@@ -83,6 +86,9 @@ export async function unsuspend(u: UserRow) {
   if (!u.linux_user) return
   await agent('account.unsuspend', { user: u.username })
   if (u.redis_enabled) await agent('redis.power', { user: u.username, on: true }).catch(() => null)
+  for (const app of db.query<{ name: string }, [number]>('SELECT name FROM apps WHERE user_id = ?').all(u.id)) {
+    await agent('app.power', { user: u.username, name: app.name, action: 'start' }).catch(() => null)
+  }
   await writeAllSites(userById(u.id)!)
 }
 
@@ -103,6 +109,10 @@ export async function deprovision(u: UserRow) {
     await agent('db.user.delete', { name: database.name }).catch(() => null)
   }
   if (u.redis_enabled) await agent('redis.disable', { user: u.username }).catch(() => null)
+  for (const app of db.query<{ name: string }, [number]>('SELECT name FROM apps WHERE user_id = ?').all(u.id)) {
+    await agent('app.delete', { user: u.username, name: app.name }).catch(() => null)
+  }
+  db.query('DELETE FROM apps WHERE user_id = ?').run(u.id)
   await agent('account.delete', { user: u.username })
   db.query('DELETE FROM domains WHERE user_id = ?').run(u.id)
   db.query('DELETE FROM databases WHERE user_id = ?').run(u.id)
@@ -135,6 +145,7 @@ export function siteFor(u: UserRow, d: DomainRow) {
     ssl: d.ssl_cert && d.ssl_key ? { cert: d.ssl_cert, key: d.ssl_key } : null,
     forceHttps: !!d.force_https,
     suspended: !!u.suspended,
+    appPort: db.query<{ port: number }, [number]>('SELECT port FROM apps WHERE domain_id = ?').get(d.id)?.port ?? null,
   }
 }
 
