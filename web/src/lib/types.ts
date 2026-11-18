@@ -152,3 +152,28 @@ export interface VpsRoom {
 }
 
 export interface VpsImageInfo { id: string; name: string; version: string }
+
+export interface App {
+  id: number
+  name: string
+  runtime: 'node' | 'python' | 'ruby'
+  version: string
+  root: string
+  command: string
+  port: number
+  env: Record<string, string>
+  domainId: number | null
+  domain: string | null
+  state: string
+  memoryBytes: number | null
+  since: number | null
+  restarts: number
+  createdAt: number
+}
+
+export interface AppsResponse {
+  apps: App[]
+  runtimes: Record<'node' | 'python' | 'ruby', string[]>
+  domains: { id: number; name: string }[]
+  defaults: Record<'node' | 'python' | 'ruby', string>
+}

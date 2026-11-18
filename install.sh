@@ -273,16 +273,21 @@ install_mail() {
 }
 
 install_node() {
-  local arch file
+  # The current long-term releases, side by side; apps pick one.
+  local arch file v ok=0
   arch=$([ "$(uname -m)" = aarch64 ] && echo arm64 || echo x64)
-  file=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt | awk "/linux-$arch.tar.xz/{print \$2}") || return 1
   install -d /opt/webcpl-runtimes/node
-  curl -fsSL "https://nodejs.org/dist/latest-v22.x/$file" | tar -xJ -C /opt/webcpl-runtimes/node || return 1
-  ln -sfn "/opt/webcpl-runtimes/node/${file%.tar.xz}" /opt/webcpl-runtimes/node/22
+  for v in 20 22 24; do
+    file=$(curl -fsSL "https://nodejs.org/dist/latest-v$v.x/SHASUMS256.txt" | awk "/linux-$arch.tar.xz/{print \$2}") || continue
+    [ -d "/opt/webcpl-runtimes/node/${file%.tar.xz}" ] || curl -fsSL "https://nodejs.org/dist/latest-v$v.x/$file" | tar -xJ -C /opt/webcpl-runtimes/node || continue
+    ln -sfn "/opt/webcpl-runtimes/node/${file%.tar.xz}" "/opt/webcpl-runtimes/node/$v"
+    ok=1
+  done
+  [ "$ok" = 1 ]
 }
 
 install_python() { "${APT[@]}" install python3 python3-venv python3-pip python3-dev build-essential; }
-install_ruby() { "${APT[@]}" install ruby-full build-essential; }
+install_ruby() { "${APT[@]}" install ruby-full ruby-bundler build-essential; }
 
 install_vps() {
   if ! apt-cache show incus >/dev/null 2>&1; then

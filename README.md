@@ -52,7 +52,12 @@ Other options: `--port N` (default `7777`).
 - SQLite through PHP.
 - Adminer at `http://IP/dbadmin/`.
 
-Next: app runtimes, mail and backups.
+**0.5**: Node.js (20, 22, 24), Python and Ruby apps.
+- Each app runs as its account, inside the account's limits, and is restarted by systemd if it stops.
+- A website can serve an app, websockets included.
+- Dependencies, environment variables and logs are handled from the panel.
+
+Next: mail and backups.
 
 ## Manage
 

@@ -9,6 +9,7 @@ import './routes/server.ts'
 import './routes/hosting.ts'
 import './routes/files.ts'
 import './routes/vps.ts'
+import './routes/apps.ts'
 import { consoleSocket, upgradeConsole, type ConsoleData } from './console.ts'
 import { startTraffic } from './vps.ts'
 import { startUsage } from './usage.ts'
@@ -29,6 +30,8 @@ startTraffic()
 
 const server = Bun.serve<ConsoleData>({
   maxRequestBodySize: 300 * 1024 * 1024,
+  // Some actions (snapshots, certificates) take longer than the 10-second default.
+  idleTimeout: 120,
   hostname: config.host,
   port: config.port,
   async fetch(req, srv) {
