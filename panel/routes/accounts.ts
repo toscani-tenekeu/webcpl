@@ -3,6 +3,7 @@ import * as auth from '../auth.ts'
 import { db, logActivity, now, userById, type UserRow } from '../db.ts'
 import { HttpError } from '../errors.ts'
 import * as hosting from '../hosting.ts'
+import * as virt from '../vps.ts'
 import { route, type Ctx } from '../http.ts'
 
 // Account names become Linux user names for hosting, so they follow the same rules.
@@ -115,6 +116,7 @@ route('PATCH', '/api/accounts/:id', async (ctx) => {
   const ownerRow = userById(owner)
   if (ownerRow?.role === 'reseller') assertResellerRoom(ownerRow, { accountId: target.id, hostingPlanId: hostingId, vpsPlanId: vps })
 
+  if (!vps && virt.vpsOf(target.id).length) throw new HttpError(409, 'This account still has VPS. Delete them before removing its VPS plan.', 'has_vps')
   if (target.linux_user && !hostingId) throw new HttpError(409, 'This account has websites on the server. Delete the account to remove its hosting.', 'has_hosting')
   db.query('UPDATE users SET email = ?, note = ?, hosting_plan_id = ?, vps_plan_id = ?, reseller_plan_id = ? WHERE id = ?').run(
     email, note, hostingId, vps, reseller, target.id,
@@ -135,6 +137,7 @@ route('POST', '/api/accounts/:id/suspend', async (ctx) => {
   db.query('UPDATE users SET suspended = 1, suspended_reason = ? WHERE id = ?').run(reason, target.id)
   auth.destroyUserSessions(target.id)
   await hosting.suspend(userById(target.id)!)
+  await virt.suspendAll(target)
   // Suspending a reseller suspends its customers' access too.
   if (target.role === 'reseller') {
     for (const customer of db.query<{ id: number }, [number]>('SELECT id FROM users WHERE owner_id = ?').all(target.id)) auth.destroyUserSessions(customer.id)
@@ -147,6 +150,7 @@ route('POST', '/api/accounts/:id/unsuspend', async (ctx) => {
   const target = managedAccount(ctx.user!, Number(ctx.params.id))
   db.query("UPDATE users SET suspended = 0, suspended_reason = '' WHERE id = ?").run(target.id)
   await hosting.unsuspend(userById(target.id)!)
+  await virt.unsuspendAll(target)
   logActivity({ actorId: ctx.user!.id, subjectId: target.id, action: 'unsuspended account', detail: target.username, ip: ctx.ip })
   return { account: summary(userById(target.id)!) }
 })
@@ -173,6 +177,7 @@ route('DELETE', '/api/accounts/:id', async (ctx) => {
   if (String(ctx.body.confirm ?? '') !== target.username) throw new HttpError(400, 'Type the username to confirm.', 'confirm')
   const customers = db.query<{ n: number }, [number]>('SELECT COUNT(*) AS n FROM users WHERE owner_id = ?').get(target.id)!.n
   if (customers) throw new HttpError(409, `This reseller still has ${customers} account(s). Delete or move them first.`, 'has_accounts')
+  await virt.removeAll(target)
   await hosting.deprovision(target)
   db.query('DELETE FROM plans WHERE owner_id = ?').run(target.id)
   db.query('DELETE FROM users WHERE id = ?').run(target.id)

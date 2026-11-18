@@ -291,6 +291,17 @@ install_vps() {
     apt-get update -q
   fi
   "${APT[@]}" install incus || return 1
+  # Inside a container only part of the ID range is mapped; Incus must stay within it.
+  local mapped
+  mapped=$(awk 'NR==1 {print $3}' /proc/self/uid_map)
+  if [ "$mapped" -lt 4294967295 ] && [ "$mapped" -gt 2000000 ]; then
+    local range=$(( (mapped - 1000000) / 10 * 9 ))
+    for f in /etc/subuid /etc/subgid; do
+      sed -i '/^root:/d' "$f"
+      echo "root:1000000:$range" >> "$f"
+    done
+    systemctl restart incus 2>/dev/null || true
+  fi
   systemctl enable -q --now incus.socket incus 2>/dev/null || true
   # Each piece is checked on its own, so a run that stopped half-way is completed.
   incus storage show default >/dev/null 2>&1 || incus storage create default dir || return 1

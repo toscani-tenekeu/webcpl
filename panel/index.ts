@@ -8,6 +8,9 @@ import './routes/plans.ts'
 import './routes/server.ts'
 import './routes/hosting.ts'
 import './routes/files.ts'
+import './routes/vps.ts'
+import { consoleSocket, upgradeConsole, type ConsoleData } from './console.ts'
+import { startTraffic } from './vps.ts'
 import { startUsage } from './usage.ts'
 
 async function serveStatic(url: URL) {
@@ -22,17 +25,21 @@ async function serveStatic(url: URL) {
 
 ensureAdmin()
 startUsage()
+startTraffic()
 
-const server = Bun.serve({
+const server = Bun.serve<ConsoleData>({
   maxRequestBodySize: 300 * 1024 * 1024,
   hostname: config.host,
   port: config.port,
   async fetch(req, srv) {
     const url = new URL(req.url)
-    if (url.pathname.startsWith('/api/')) return handleApi(req, url, srv)
+    const term = url.pathname.match(/^\/api\/vps\/(\d+)\/console$/)
+    if (term) return upgradeConsole(req, url, srv, Number(term[1]))
+    if (url.pathname.startsWith('/api/')) return handleApi(req, url, srv as never)
     if (req.method !== 'GET' && req.method !== 'HEAD') return new Response('Not Found', { status: 404 })
     return serveStatic(url)
   },
+  websocket: consoleSocket,
 })
 
 console.log(`Webcpl ${version} listening on http://${server.hostname}:${server.port}`)
