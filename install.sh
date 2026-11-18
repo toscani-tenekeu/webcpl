@@ -287,7 +287,7 @@ install_node() {
 }
 
 install_python() { "${APT[@]}" install python3 python3-venv python3-pip python3-dev build-essential; }
-install_ruby() { "${APT[@]}" install ruby-full build-essential; }
+install_ruby() { "${APT[@]}" install ruby-full ruby-bundler build-essential; }
 
 install_vps() {
   if ! apt-cache show incus >/dev/null 2>&1; then

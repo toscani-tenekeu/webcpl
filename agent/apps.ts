@@ -190,7 +190,7 @@ WantedBy=multi-user.target
         ? 'if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; elif [ -f package.json ]; then npm install --no-audit --no-fund; else echo "No package.json in this folder."; exit 1; fi'
         : s.runtime === 'python'
           ? '[ -d .venv ] || /usr/bin/python3 -m venv .venv || exit 1; .venv/bin/pip install --upgrade pip -q; if [ -f requirements.txt ]; then .venv/bin/pip install -r requirements.txt; else echo "No requirements.txt in this folder."; exit 1; fi'
-          : 'if [ -f Gemfile ]; then gem install --user-install --conservative bundler -q >/dev/null 2>&1; bundle config set --local path vendor/bundle && bundle install; else echo "No Gemfile in this folder."; exit 1; fi'
+          : 'if [ -f Gemfile ]; then command -v bundle >/dev/null 2>&1 || gem install --conservative bundler || exit 1; bundle config set --local path vendor/bundle && bundle install; else echo "No Gemfile in this folder."; exit 1; fi'
     const r = await run(
       ['runuser', '-u', s.user, '--', 'env', '-i', `HOME=/home/${s.user}`, `USER=${s.user}`, `PATH=${path}`, `GEM_HOME=/home/${s.user}/.gem`, 'LANG=C.UTF-8',
         '/bin/sh', '-c', `cd "$1" && ${script}`, 'sh', root],
