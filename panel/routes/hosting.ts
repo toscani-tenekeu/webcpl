@@ -230,16 +230,32 @@ route('PUT', '/api/domains/:id/dns', async (ctx) => {
 
 // ---- databases -----------------------------------------------------------------------------------
 
+type DbRow = { id: number; name: string; remote: number; engine: 'mariadb' | 'postgresql'; created_at: number }
+const ENGINES = ['mariadb', 'postgresql'] as const
+
 route('GET', '/api/databases', async (ctx) => {
   const u = me(ctx)
-  const rows = db.query<{ id: number; name: string; remote: number; created_at: number }, [number]>('SELECT * FROM databases WHERE user_id = ? ORDER BY name').all(u.id)
-  const sizes = rows.length ? await agent<Record<string, number>>('db.sizes', { user: u.username }).catch(() => ({} as Record<string, number>)) : {}
-  return { databases: rows.map((r) => ({ id: r.id, name: r.name, user: r.name, remote: !!r.remote, size: sizes[r.name] ?? 0, createdAt: r.created_at })) }
+  const rows = db.query<DbRow, [number]>('SELECT * FROM databases WHERE user_id = ? ORDER BY name').all(u.id)
+  const has = (e: string) => rows.some((r) => r.engine === e)
+  const [my, pg] = await Promise.all([
+    has('mariadb') ? agent<Record<string, number>>('db.sizes', { user: u.username }).catch(() => ({} as Record<string, number>)) : ({} as Record<string, number>),
+    has('postgresql') ? agent<Record<string, number>>('pg.sizes', { user: u.username }).catch(() => ({} as Record<string, number>)) : ({} as Record<string, number>),
+  ])
+  const components = (await hosting.serverInfo()).components
+  return {
+    databases: rows.map((r) => ({
+      id: r.id, name: r.name, user: r.name, engine: r.engine, remote: !!r.remote,
+      size: (r.engine === 'postgresql' ? pg : my)[r.name] ?? 0, createdAt: r.created_at,
+    })),
+    engines: ENGINES.filter((e) => components[e]),
+    adminer: components.mariadb || components.postgresql ? `http://${await hosting.publicAddress()}/dbadmin/` : null,
+  }
 })
 
 route('POST', '/api/databases', async (ctx) => {
   const u = me(ctx)
-  if (!(await hosting.serverInfo()).components.mariadb) throw new HttpError(400, 'MariaDB is not installed on this server.', 'no_mariadb')
+  const engine = String(ctx.body.engine || 'mariadb') as DbRow['engine']
+  if (!ENGINES.includes(engine) || !(await hosting.serverInfo()).components[engine]) throw new HttpError(400, 'That database engine is not installed on this server.', 'no_engine')
   const suffix = String(ctx.body.name ?? '').trim().toLowerCase()
   if (!/^[a-z0-9]{1,32}$/.test(suffix)) throw new HttpError(400, 'Use up to 32 lowercase letters or digits.', 'bad_name')
   const name = `${u.username}_${suffix}`
@@ -247,15 +263,18 @@ route('POST', '/api/databases', async (ctx) => {
   within(u, 'databases', count('SELECT COUNT(*) AS n FROM databases WHERE user_id = ?', u.id), 'databases')
   const password = String(ctx.body.password || generatePassword(20))
   if (password.length < 10) throw new HttpError(400, 'Use at least 10 characters.', 'weak_password')
-  await agent('db.create', { name })
-  await agent('db.user.set', { name, database: name, password })
-  const result = db.query('INSERT INTO databases(user_id, name, created_at) VALUES(?,?,?)').run(u.id, name, now())
+  if (engine === 'postgresql') await agent('pg.create', { name, password })
+  else {
+    await agent('db.create', { name })
+    await agent('db.user.set', { name, database: name, password })
+  }
+  const result = db.query('INSERT INTO databases(user_id, name, engine, created_at) VALUES(?,?,?,?)').run(u.id, name, engine, now())
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'created database', detail: name, ip: ctx.ip })
-  return { database: { id: Number(result.lastInsertRowid), name, user: name }, password }
+  return { database: { id: Number(result.lastInsertRowid), name, user: name, engine }, password }
 })
 
 function ownDatabase(u: UserRow, id: unknown) {
-  const row = db.query<{ id: number; name: string; remote: number }, [number, number]>('SELECT * FROM databases WHERE id = ? AND user_id = ?').get(Number(id), u.id)
+  const row = db.query<DbRow, [number, number]>('SELECT * FROM databases WHERE id = ? AND user_id = ?').get(Number(id), u.id)
   if (!row) throw new HttpError(404, 'Database not found.', 'not_found')
   return row
 }
@@ -265,7 +284,8 @@ route('POST', '/api/databases/:id/password', async (ctx) => {
   const row = ownDatabase(u, ctx.params.id)
   const password = String(ctx.body.password || generatePassword(20))
   if (password.length < 10) throw new HttpError(400, 'Use at least 10 characters.', 'weak_password')
-  await agent('db.user.set', { name: row.name, database: row.name, password, remote: !!row.remote })
+  if (row.engine === 'postgresql') await agent('pg.password', { name: row.name, password })
+  else await agent('db.user.set', { name: row.name, database: row.name, password, remote: !!row.remote })
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'changed database password', detail: row.name, ip: ctx.ip })
   return { password }
 })
@@ -273,6 +293,7 @@ route('POST', '/api/databases/:id/password', async (ctx) => {
 route('PATCH', '/api/databases/:id', async (ctx) => {
   const u = me(ctx)
   const row = ownDatabase(u, ctx.params.id)
+  if (row.engine !== 'mariadb') throw new HttpError(400, 'Remote access is available for MariaDB databases.', 'mariadb_only')
   const remote = ctx.body.remote === true
   await agent('db.user.set', { name: row.name, database: row.name, remote })
   db.query('UPDATE databases SET remote = ? WHERE id = ?').run(remote ? 1 : 0, row.id)
@@ -283,10 +304,39 @@ route('DELETE', '/api/databases/:id', async (ctx) => {
   const u = me(ctx)
   const row = ownDatabase(u, ctx.params.id)
   if (String(ctx.body.confirm ?? '') !== row.name) throw new HttpError(400, 'Type the database name to confirm.', 'confirm')
-  await agent('db.delete', { name: row.name })
-  await agent('db.user.delete', { name: row.name })
+  if (row.engine === 'postgresql') await agent('pg.delete', { name: row.name })
+  else {
+    await agent('db.delete', { name: row.name })
+    await agent('db.user.delete', { name: row.name })
+  }
   db.query('DELETE FROM databases WHERE id = ?').run(row.id)
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'deleted database', detail: row.name, ip: ctx.ip })
+  return { ok: true }
+})
+
+// ---- Redis ---------------------------------------------------------------------------------------
+
+route('GET', '/api/redis', async (ctx) => {
+  const u = me(ctx)
+  const installed = (await hosting.serverInfo()).components.redis
+  const memory = hosting.redisMemory(u)
+  if (!installed || memory === 0) return { available: false, enabled: false }
+  const status = u.redis_enabled ? await agent<Record<string, unknown>>('redis.status', { user: u.username }).catch(() => ({ enabled: true, active: false })) : { enabled: false }
+  return { available: true, memoryMb: memory, ...status }
+})
+
+route('PUT', '/api/redis', async (ctx) => {
+  const u = me(ctx)
+  const memory = hosting.redisMemory(u)
+  if (!(await hosting.serverInfo()).components.redis || memory === 0) throw new HttpError(403, 'Your plan does not include Redis.', 'no_redis')
+  if (ctx.body.enabled === true) {
+    await agent('redis.enable', { user: u.username, memory_mb: memory })
+    db.query('UPDATE users SET redis_enabled = 1 WHERE id = ?').run(u.id)
+  } else {
+    await agent('redis.disable', { user: u.username })
+    db.query('UPDATE users SET redis_enabled = 0 WHERE id = ?').run(u.id)
+  }
+  logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: ctx.body.enabled === true ? 'turned on Redis' : 'turned off Redis', ip: ctx.ip })
   return { ok: true }
 })
 

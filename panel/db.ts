@@ -147,6 +147,8 @@ for (const statement of [
   "ALTER TABLE users ADD COLUMN php_settings TEXT NOT NULL DEFAULT '{}'",
   'ALTER TABLE users ADD COLUMN disk_used INTEGER',
   'ALTER TABLE users ADD COLUMN disk_measured_at INTEGER',
+  "ALTER TABLE databases ADD COLUMN engine TEXT NOT NULL DEFAULT 'mariadb'",
+  'ALTER TABLE users ADD COLUMN redis_enabled INTEGER NOT NULL DEFAULT 0',
 ]) {
   try {
     db.exec(statement)
@@ -181,6 +183,7 @@ export interface UserRow {
   php_settings: string
   disk_used: number | null
   disk_measured_at: number | null
+  redis_enabled: number
 }
 
 export interface DomainRow {
