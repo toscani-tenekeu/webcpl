@@ -242,7 +242,11 @@ install_vps() {
   fi
   "${APT[@]}" install incus || return 1
   systemctl enable -q --now incus.socket incus 2>/dev/null || true
-  incus storage show default >/dev/null 2>&1 || incus admin init --minimal
+  # Each piece is checked on its own, so a run that stopped half-way is completed.
+  incus storage show default >/dev/null 2>&1 || incus storage create default dir || return 1
+  incus network show incusbr0 >/dev/null 2>&1 || incus network create incusbr0 || return 1
+  incus profile device show default | grep -q '^root:' || incus profile device add default root disk path=/ pool=default || return 1
+  incus profile device show default | grep -q '^eth0:' || incus profile device add default eth0 nic network=incusbr0 name=eth0 || return 1
 }
 
 component "the web server" install_web || true
