@@ -284,4 +284,7 @@ export const fr: Record<string, string> = {
   "{s}: done": "{s} : fait",
   "{u} can sign in": "{u} peut se connecter",
   "{u} deleted": "{u} supprimé",
+  "Websites, databases, mail and files on this server.": "Sites, bases de données, e-mails et fichiers sur ce serveur.",
+  "LXC containers with their own system and root access.": "Conteneurs LXC avec leur propre système et un accès root.",
+  "What a reseller may hand out to its own customers, in total.": "Ce qu'un revendeur peut attribuer à ses propres clients, au total.",
 }
