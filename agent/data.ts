@@ -34,7 +34,8 @@ export const dataOps: Record<string, (args: Args) => Promise<unknown>> = {
     await psql(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = ${literal(name)}) THEN CREATE ROLE "${name}" LOGIN PASSWORD ${literal(pass)}; END IF; END $$;`)
     const exists = (await psql(`SELECT 1 FROM pg_database WHERE datname = ${literal(name)}`)).trim()
     if (!exists) await psql(`CREATE DATABASE "${name}" OWNER "${name}" ENCODING 'UTF8' TEMPLATE template0`)
-    await psql(`REVOKE ALL ON DATABASE "${name}" FROM PUBLIC; GRANT ALL ON DATABASE "${name}" TO "${name}";`)
+    // Accounts reach their own databases only, not the system ones either.
+    await psql(`REVOKE ALL ON DATABASE "${name}" FROM PUBLIC; GRANT ALL ON DATABASE "${name}" TO "${name}"; REVOKE CONNECT ON DATABASE postgres FROM PUBLIC; REVOKE CONNECT ON DATABASE template1 FROM PUBLIC;`)
     return { ok: true }
   },
   'pg.password': async (args) => {
