@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { assertResellerRoom, canManage, isAdmin, managedAccount, planForAccount, requireRole, resellerUsage } from '../access.ts'
 import * as auth from '../auth.ts'
 import { db, logActivity, now, userById, type UserRow } from '../db.ts'
@@ -160,8 +161,11 @@ route('POST', '/api/accounts/:id/unsuspend', async (ctx) => {
 
 route('POST', '/api/accounts/:id/reset-password', async (ctx) => {
   const target = managedAccount(ctx.user!, Number(ctx.params.id))
-  const password = auth.generatePassword(16)
-  db.query('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?').run(await auth.hashPassword(password), target.id)
+  // A billing system sets the password it chose; otherwise one is made and must be changed.
+  const chosen = ctx.body.password !== undefined
+  if (chosen && !auth.validPassword(ctx.body.password)) throw new HttpError(400, 'Use at least 10 characters.', 'weak_password')
+  const password = chosen ? String(ctx.body.password) : auth.generatePassword(16)
+  db.query('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?').run(await auth.hashPassword(password), chosen ? 0 : 1, target.id)
   await hosting.syncPassword(target, password)
   auth.destroyUserSessions(target.id)
   logActivity({ actorId: ctx.user!.id, subjectId: target.id, action: 'reset password', detail: target.username, ip: ctx.ip })
@@ -202,3 +206,30 @@ route('POST', '/api/accounts/:id/login-as', (ctx) => {
   logActivity({ actorId: actor.id, subjectId: target.id, action: 'signed in as', detail: target.username, ip: ctx.ip })
   return { ok: true }
 })
+
+// ---- one-time sign-in links (billing systems) ------------------------------------------------------
+
+const links = new Map<string, { userId: number; actorId: number; expires: number }>()
+
+/** A link that signs the customer in once, within a minute: for a billing system's "Log in" button. */
+route('POST', '/api/accounts/:id/login-link', (ctx) => {
+  const target = managedAccount(ctx.user!, Number(ctx.params.id))
+  if (target.suspended) throw new HttpError(403, 'This account is suspended.', 'suspended')
+  const token = randomBytes(32).toString('base64url')
+  links.set(token, { userId: target.id, actorId: ctx.user!.id, expires: Date.now() + 60_000 })
+  for (const [key, link] of links) if (link.expires < Date.now()) links.delete(key)
+  logActivity({ actorId: ctx.user!.id, subjectId: target.id, action: 'made a sign-in link', detail: target.username, ip: ctx.ip })
+  return { url: `${ctx.url.origin}/api/auth/link?token=${token}`, expiresIn: 60 }
+})
+
+route('GET', '/api/auth/link', (ctx) => {
+  const token = String(ctx.url.searchParams.get('token') ?? '')
+  const link = links.get(token)
+  links.delete(token)
+  const target = link && link.expires > Date.now() ? userById(link.userId) : null
+  if (!target || target.suspended) return new Response(null, { status: 302, headers: { Location: '/login' } })
+  auth.destroySession(ctx.token)
+  const session = auth.createSession(target.id, ctx.ip, ctx.req.headers.get('user-agent') ?? '')
+  logActivity({ actorId: target.id, subjectId: target.id, action: 'signed in with a link', ip: ctx.ip })
+  return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': auth.sessionCookie(session, ctx.secure) } })
+}, 'open')
