@@ -21,6 +21,12 @@ export const router = createRouter({
         { path: 'plans', component: () => import('@/pages/Plans.vue'), meta: { title: 'Plans', roles: MANAGERS } },
         { path: 'server', component: () => import('@/pages/Server.vue'), meta: { title: 'Server', roles: ['admin'] } },
         { path: 'settings', component: () => import('@/pages/Settings.vue'), meta: { title: 'Panel settings', roles: ['admin'] } },
+        { path: 'websites', component: () => import('@/pages/hosting/Websites.vue'), meta: { title: 'Websites', hosting: true } },
+        { path: 'websites/:id/:tab?', component: () => import('@/pages/hosting/Website.vue'), meta: { title: 'Website', hosting: true } },
+        { path: 'files', component: () => import('@/pages/hosting/Files.vue'), meta: { title: 'Files', hosting: true } },
+        { path: 'databases', component: () => import('@/pages/hosting/Databases.vue'), meta: { title: 'Databases', hosting: true } },
+        { path: 'cron', component: () => import('@/pages/hosting/Cron.vue'), meta: { title: 'Cron jobs', hosting: true } },
+        { path: 'access', component: () => import('@/pages/hosting/Access.vue'), meta: { title: 'Access and PHP', hosting: true } },
         { path: 'activity', component: () => import('@/pages/Activity.vue'), meta: { title: 'Activity' } },
         { path: 'account', component: () => import('@/pages/MyAccount.vue'), meta: { title: 'My account' } },
       ],
@@ -37,6 +43,7 @@ router.beforeEach(async (to) => {
   if (u.mustChangePassword && !to.path.startsWith('/password')) return { path: '/password' }
   const roles = to.matched.map((r) => r.meta.roles as Role[] | undefined).find(Boolean)
   if (roles && !roles.includes(u.role)) return { path: '/' }
+  if (to.matched.some((r) => r.meta.hosting) && !u.hostingPlan) return { path: '/' }
   return true
 })
 
