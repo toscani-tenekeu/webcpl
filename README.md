@@ -35,49 +35,23 @@ Choose the components when asked, or add `--yes` to keep the defaults. Then open
 
 Other options: `--port N` (default `7777`).
 
-## Status
+## Features
 
-**0.1** — three account levels (admin, reseller, user), hosting, VPS and reseller plans with reseller caps, log in as, suspend, two-factor sign-in, API keys, activity log, server and service overview, English and French.
+- **Accounts.** Admin, resellers and users. Plans for hosting, VPS and resellers, with reseller caps. Users can be suspended, and admins can log in as them. Two-factor sign-in, API keys and an activity log. English and French.
+- **Websites.** nginx in front of Apache (`.htaccess` works), a PHP version and PHP-FPM pool per account, subdomains, aliases and Let's Encrypt. CPU, memory and process limits per account.
+- **DNS.** A PowerDNS zone per domain, with DKIM and DMARC records.
+- **Databases.** MariaDB, PostgreSQL, a private Redis per account and SQLite. Adminer at `/dbadmin/`.
+- **Apps.** Node.js 20, 22 and 24, Python and Ruby, each running as its account behind a website, with websockets.
+- **Mail.** Mailboxes stored in the account's home, forwarders, catch-all addresses, Rspamd and SnappyMail webmail at `/webmail/`.
+- **Files.** A file manager in the browser, SFTP, FTP over TLS, and cron jobs.
+- **VPS.** LXC containers with Incus, on 11 distributions. Includes a browser console, resizing, reinstalls, snapshots and monthly traffic limits.
+- **Backups.** Files, mail and databases, backed up on demand or on a schedule. Download and restore from the panel, with an optional off-site copy over SFTP or to S3.
+- **Server.** UFW firewall rules, Fail2ban, system and Webcpl updates, a certificate for the hostname (HTTPS for the panel and mail), and 24-hour charts of CPU, memory, disk and network.
 
-**0.2**: shared hosting.
-- Websites with their own PHP version and PHP-FPM pool per account, `.htaccess`, subdomains, aliases and Let’s Encrypt.
-- A DNS zone per domain, MariaDB databases, a file manager, cron jobs and SFTP.
-- CPU, memory and process limits per account.
+## Limits
 
-**0.3**: VPS with Incus. Users split their VPS plan across LXC containers on 11 Linux distributions, with SSH through a forwarded port, a browser console, power actions, resizing, reinstalls, snapshots and monthly traffic limits.
-
-**0.4**: more databases.
-- PostgreSQL next to MariaDB.
-- A private Redis per account, on a socket in the account's home, with memory from the plan.
-- SQLite through PHP.
-- Adminer at `http://IP/dbadmin/`.
-
-**0.5**: Node.js (20, 22, 24), Python and Ruby apps.
-- Each app runs as its account, inside the account's limits, and is restarted by systemd if it stops.
-- A website can serve an app, websockets included.
-- Dependencies, environment variables and logs are handled from the panel.
-
-**0.6**: mail.
-- Mailboxes with quotas, stored in the account's home.
-- Forwarders and catch-all addresses.
-- DKIM signing and DMARC, with spam filtering by Rspamd.
-- SnappyMail webmail at `http://IP/webmail/`.
-- Mail needs Dovecot 2.3: Ubuntu 22.04/24.04 and Debian 12.
-
-**0.7**: backups.
-- Each account's files, mail, apps and databases, backed up on demand or daily or weekly, with retention.
-- Download and restore from the panel.
-- An optional off-site copy over SFTP or to S3-compatible storage.
-- Backups are stored in `/var/backups/webcpl`.
-
-**0.8**: admin tools.
-- Firewall (UFW) rules; SSH and the panel always stay open.
-- Fail2ban for SSH, mail and panel sign-ins.
-- Webcpl and system updates from the panel.
-- A Let's Encrypt certificate for the hostname, used for HTTPS on the panel and for mail.
-- 24-hour charts of CPU, memory, disk and network.
-
-Next: 1.0.
+- Mail needs Dovecot 2.3: Ubuntu 22.04/24.04 or Debian 12. On Debian 13, mail is skipped.
+- A VPS is reached through a forwarded SSH port. Dedicated public IPs are not assigned yet.
 
 ## Manage
 
