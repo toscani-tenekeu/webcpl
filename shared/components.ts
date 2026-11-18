@@ -64,7 +64,7 @@ export function componentList(choice: ComponentChoice): (ComponentInfo & { insta
     { id: 'ftp', installed: choice.ftp, label: 'FTP', description: 'Pure-FTPd, for clients without SFTP', services: ['pure-ftpd'] },
     {
       id: 'mail', installed: choice.mail, label: 'Mail server', description: 'Postfix, Dovecot and Rspamd',
-      services: ['postfix', 'dovecot', 'rspamd'], upcoming: true,
+      services: ['postfix', 'dovecot', 'rspamd'],
     },
     { id: 'vps', installed: choice.vps, label: 'VPS (LXC)', description: 'Incus containers sold as VPS', services: ['incus'] },
   ]

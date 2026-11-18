@@ -57,7 +57,14 @@ Other options: `--port N` (default `7777`).
 - A website can serve an app, websockets included.
 - Dependencies, environment variables and logs are handled from the panel.
 
-Next: mail and backups.
+**0.6**: mail.
+- Mailboxes with quotas, stored in the account's home.
+- Forwarders and catch-all addresses.
+- DKIM signing and DMARC, with spam filtering by Rspamd.
+- SnappyMail webmail at `http://IP/webmail/`.
+- Mail needs Dovecot 2.3: Ubuntu 22.04/24.04 and Debian 12.
+
+Next: backups.
 
 ## Manage
 

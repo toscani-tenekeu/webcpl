@@ -98,6 +98,7 @@ export async function deprovision(u: UserRow) {
   const domains = db.query<DomainRow, [number]>('SELECT * FROM domains WHERE user_id = ?').all(u.id)
   for (const d of domains) {
     if (!d.parent_id) await agent('dns.zone.delete', { zone: d.name }).catch(() => null)
+    if (!d.parent_id) await agent('mail.dkim.delete', { domain: d.name }).catch(() => null)
     if (d.ssl_cert) await agent('ssl.delete', { name: d.name }).catch(() => null)
   }
   for (const database of db.query<{ name: string; engine: string }, [number]>('SELECT name, engine FROM databases WHERE user_id = ?').all(u.id)) {

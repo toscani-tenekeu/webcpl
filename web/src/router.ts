@@ -25,6 +25,7 @@ export const router = createRouter({
         { path: 'websites/:id/:tab?', component: () => import('@/pages/hosting/Website.vue'), meta: { title: 'Website', hosting: true } },
         { path: 'files', component: () => import('@/pages/hosting/Files.vue'), meta: { title: 'Files', hosting: true } },
         { path: 'databases', component: () => import('@/pages/hosting/Databases.vue'), meta: { title: 'Databases', hosting: true } },
+        { path: 'mail', component: () => import('@/pages/hosting/Mail.vue'), meta: { title: 'Mail', hosting: true } },
         { path: 'cron', component: () => import('@/pages/hosting/Cron.vue'), meta: { title: 'Cron jobs', hosting: true } },
         { path: 'apps', component: () => import('@/pages/hosting/Apps.vue'), meta: { title: 'Apps', hosting: true } },
         { path: 'apps/:id/:tab?', component: () => import('@/pages/hosting/App.vue'), meta: { title: 'App', hosting: true } },
