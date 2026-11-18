@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import LimitsSummary from '@/components/app/LimitsSummary.vue'
 import UsageBars from '@/components/app/UsageBars.vue'
 import LoadError from '@/components/LoadError.vue'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -12,7 +13,7 @@ import { useResource } from '@/composables/useResource'
 import { panelName, user } from '@/composables/useSession'
 import { bytes, duration } from '@/lib/format'
 import { t } from '@/lib/i18n'
-import type { ResellerUsage, ServerInfo } from '@/lib/types'
+import type { HostingInfo, ResellerUsage, ServerInfo } from '@/lib/types'
 
 const role = computed(() => user.value?.role)
 const HOSTING_LINKS = [
@@ -31,6 +32,13 @@ const info = computed(() => {
 const agentError = computed(() => {
   const value = server?.data.value?.info
   return value && 'error' in value ? value.error : ''
+})
+const hostingInfo = user.value?.hostingPlan ? useResource<HostingInfo>('/api/hosting', 60_000) : null
+const overBandwidth = computed(() => !!hostingInfo?.data.value?.overBandwidth)
+const overDisk = computed(() => {
+  const h = hostingInfo?.data.value
+  const limit = h?.limits.disk_mb
+  return !!h && typeof limit === 'number' && (h.usage.diskBytes ?? 0) > limit * 1024 * 1024
 })
 const mainIp = computed(() => info.value?.addresses.find((a) => a.family === 4)?.address ?? info.value?.addresses[0]?.address ?? '')
 
@@ -57,6 +65,14 @@ const tiles = computed(() => {
     <p class="text-muted-foreground mt-1 text-sm">{{ t('Welcome to {p}.', { p: panelName }) }}</p>
   </div>
   <LoadError :message="error || agentError" />
+  <Alert v-if="overBandwidth" variant="destructive">
+    <AlertTitle>{{ t('Your websites are paused') }}</AlertTitle>
+    <AlertDescription>{{ t('They used this month’s bandwidth and come back at the start of next month. Ask your provider for a larger plan to bring them back sooner.') }}</AlertDescription>
+  </Alert>
+  <Alert v-if="overDisk" variant="destructive">
+    <AlertTitle>{{ t('Your disk space is full') }}</AlertTitle>
+    <AlertDescription>{{ t('Uploads from the panel are refused until you delete some files or get a larger plan.') }}</AlertDescription>
+  </Alert>
 
   <!-- Admin and reseller: what they manage at a glance. -->
   <template v-if="role === 'admin' || role === 'reseller'">

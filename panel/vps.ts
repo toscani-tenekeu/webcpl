@@ -183,6 +183,7 @@ export function publicVps(v: VpsRow, live?: Awaited<ReturnType<typeof liveState>
     cpuNs: live?.cpuNs ?? null,
     trafficBytes: v.traffic_period === period() ? v.traffic_bytes : 0,
     throttled: !!v.throttled,
+    publicIps: db.query<{ ip: string }, [number]>('SELECT ip FROM vps_ips WHERE vps_id = ? ORDER BY ip').all(v.id).map((r) => r.ip),
     createdAt: v.created_at,
   }
 }

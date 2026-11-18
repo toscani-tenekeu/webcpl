@@ -127,7 +127,8 @@ export async function handleApi(req: Request, url: URL, server: Server<unknown>)
     const result = await found.route.handler(ctx)
     // A handler may answer with a file instead of JSON.
     if (result instanceof Response) {
-      for (const [key, value] of Object.entries(SECURITY_HEADERS)) result.headers.set(key, value)
+      // A handler may set a stricter or sandboxed policy of its own (statistics reports).
+      for (const [key, value] of Object.entries(SECURITY_HEADERS)) if (!result.headers.has(key)) result.headers.set(key, value)
       return result
     }
     return json(result ?? { ok: true }, req.method === 'POST' && /^\/api\/(accounts|plans|account\/api-keys)$/.test(url.pathname) ? 201 : 200, ctx.headers)

@@ -38,6 +38,13 @@ function mailboxes(input: unknown): Mailbox[] {
   })
 }
 
+/** Dovecot 2.4 renamed the per-user quota field. */
+let dovecot24: boolean | null = null
+async function isDovecot24() {
+  if (dovecot24 === null) dovecot24 = /^2\.4\./.test((await run(['dovecot', '--version'])).stdout.trim())
+  return dovecot24
+}
+
 const homeOf = (m: Mailbox) => {
   const [local, dom] = m.address.split('@')
   return `/home/${m.user}/mail/${dom}/${local}`
@@ -71,7 +78,7 @@ export const mailOps: Record<string, (args: Args) => Promise<unknown>> = {
       const { uid, gid } = await ids(m.user)
       const home = homeOf(m)
       if (!existsSync(home)) await must(['runuser', '-u', m.user, '--', 'mkdir', '-p', '-m', '0700', home], 'Could not create the mail folder')
-      const quota = m.quotaMb ? `userdb_quota_rule=*:storage=${m.quotaMb}M` : ''
+      const quota = !m.quotaMb ? '' : (await isDovecot24()) ? `userdb_quota_storage_size=${m.quotaMb}M` : `userdb_quota_rule=*:storage=${m.quotaMb}M`
       // A suspended mailbox keeps receiving but cannot sign in.
       lines.push(`${m.address}:${m.enabled ? '' : '!'}{ARGON2ID}${m.hash}:${uid}:${gid}::${home}::${quota}`)
     }
@@ -103,6 +110,27 @@ export const mailOps: Record<string, (args: Args) => Promise<unknown>> = {
   },
   'mail.dkim.delete': async (args) => {
     removeFile(`${DKIM}/${domain(args.domain)}.webcpl.key`)
+    return { ok: true }
+  },
+
+  /** Writes a mailbox's Sieve script (spam filing, vacation reply), as the account. */
+  'mail.sieve': async (args) => {
+    const user = String(args.user ?? '')
+    if (!USERNAME.test(user)) throw new Error('Invalid account.')
+    const addr = address(args.address)
+    const script = String(args.script ?? '')
+    if (script.length > 64 * 1024) throw new Error('The filter is too long.')
+    const [local, dom] = addr.split('@')
+    const home = `/home/${user}/mail/${dom}/${local}`
+    await must(['runuser', '-u', user, '--', 'mkdir', '-p', '-m', '0700', home], 'Could not create the mail folder')
+    if (!script.trim()) {
+      await run(['runuser', '-u', user, '--', 'rm', '-f', `${home}/.dovecot.sieve`, `${home}/.dovecot.svbin`])
+      return { ok: true }
+    }
+    await must(['runuser', '-u', user, '--', 'tee', `${home}/.dovecot.sieve`], 'Could not save the filter', { input: script })
+    // Compiled now, so a mistake shows here and not as a lost message.
+    const check = await run(['runuser', '-u', user, '--', 'sievec', `${home}/.dovecot.sieve`])
+    if (!check.ok) throw new Error(`The filter is not valid: ${(check.stderr || check.stdout).trim().split('\n').at(-1)}`)
     return { ok: true }
   },
 

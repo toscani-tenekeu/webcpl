@@ -51,6 +51,30 @@ async function power(action: string) {
   powering.value = ''
 }
 
+// ---- public addresses ----
+const ipBusy = ref(false)
+async function addIp() {
+  ipBusy.value = true
+  try {
+    const r = await post<{ ip: string }>(`/api/vps/${id.value}/ips`)
+    toast.success(t('{ip} is now on this VPS. It restarted to use it.', { ip: r.ip }))
+    await reload()
+  } catch (failure) {
+    toast.error(messageOf(failure))
+  }
+  ipBusy.value = false
+}
+async function releaseIp(ip: string) {
+  ipBusy.value = true
+  try {
+    await del(`/api/vps/${id.value}/ips/${ip}`)
+    await reload()
+  } catch (failure) {
+    toast.error(messageOf(failure))
+  }
+  ipBusy.value = false
+}
+
 // ---- snapshots ----
 const snaps = ref<{ snapshots: { name: string; createdAt: number }[]; limit: number | null } | null>(null)
 const snapName = ref('')
@@ -177,6 +201,21 @@ const running = computed(() => vps.value?.status === 'ready' && vps.value.state 
           <CardContent class="flex flex-col gap-3">
             <CopyLine :text="`ssh -p ${vps.sshPort} root@${host}`" />
             <p class="text-muted-foreground text-xs">{{ t('Private address') }}: <span class="text-foreground font-mono">{{ vps.ipv4 ?? '—' }}</span><template v-if="vps.ipv6"> · <span class="text-foreground font-mono">{{ vps.ipv6 }}</span></template></p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>{{ t('Public addresses') }}</CardTitle>
+            <CardDescription>{{ t('A public IPv4 address reaches the VPS directly, on every port. Your plan includes {n}.', { n: data.limits.ipv4 ?? '∞' }) }}</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-3">
+            <ul v-if="vps.publicIps.length" class="flex flex-col gap-2">
+              <li v-for="ip in vps.publicIps" :key="ip" class="flex items-center justify-between gap-2">
+                <CopyLine :text="ip" class="flex-1" />
+                <Button size="sm" variant="outline" :disabled="ipBusy" @click="releaseIp(ip)">{{ t('Release') }}</Button>
+              </li>
+            </ul>
+            <div><Button variant="outline" :disabled="ipBusy || vps.status !== 'ready'" @click="addIp"><Spinner v-if="ipBusy" data-icon="inline-start" /> {{ t('Add a public IPv4') }}</Button></div>
           </CardContent>
         </Card>
         <Card>

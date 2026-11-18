@@ -3,7 +3,7 @@ import { db, getSetting, logActivity, now, userById, type DomainRow, type UserRo
 import { HttpError } from '../errors.ts'
 import * as hosting from '../hosting.ts'
 import { route, type Ctx } from '../http.ts'
-import { ensureMailRecords, hashMailPassword, requireMail, syncMail } from '../mail.ts'
+import { type Autoreply, ensureMailRecords, hashMailPassword, requireMail, syncMail, writeSieve } from '../mail.ts'
 
 function me(ctx: Ctx) {
   const u = userById(ctx.user!.id)!
@@ -34,19 +34,40 @@ function checkQuota(u: UserRow, value: unknown) {
   return quota
 }
 
+function cleanAutoreply(value: unknown): Autoreply | null {
+  if (!value || typeof value !== 'object') return null
+  const r = value as Record<string, unknown>
+  const date = (v: unknown) => {
+    const text = String(v ?? '').trim()
+    if (!text) return null
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new HttpError(400, 'Dates look like 2026-12-24.', 'bad_date')
+    return text
+  }
+  const subject = String(r.subject ?? '').trim().slice(0, 200)
+  const message = String(r.message ?? '').replace(/\r/g, '').trim()
+  if (message.length > 4000) throw new HttpError(400, 'Keep the reply under 4000 characters.', 'too_long')
+  const reply = { enabled: r.enabled === true, subject, message, start: date(r.start), end: date(r.end) }
+  if (reply.enabled && !message) throw new HttpError(400, 'Write the reply first.', 'no_message')
+  if (reply.start && reply.end && reply.start > reply.end) throw new HttpError(400, 'The end date comes before the start date.', 'bad_date')
+  return reply
+}
+
 route('GET', '/api/mail', async (ctx) => {
   const u = me(ctx)
   await requireMail()
   const domains = db.query<{ id: number; name: string }, [number]>('SELECT id, name FROM domains WHERE user_id = ? AND parent_id IS NULL ORDER BY name').all(u.id)
-  const boxes = db.query<{ id: number; domain_id: number; address: string; quota_mb: number; created_at: number }, [number]>(
-    'SELECT id, domain_id, address, quota_mb, created_at FROM mailboxes WHERE user_id = ? ORDER BY address').all(u.id)
+  const boxes = db.query<{ id: number; domain_id: number; address: string; quota_mb: number; autoreply: string | null; spam_to_junk: number; created_at: number }, [number]>(
+    'SELECT id, domain_id, address, quota_mb, autoreply, spam_to_junk, created_at FROM mailboxes WHERE user_id = ? ORDER BY address').all(u.id)
   const used = boxes.length ? await agent<Record<string, number>>('mail.usage', { addresses: boxes.map((b) => b.address) }).catch(() => ({} as Record<string, number>)) : {}
   const forwarders = db.query<{ id: number; domain_id: number; source: string; destinations: string }, [number]>(
     'SELECT id, domain_id, source, destinations FROM forwarders WHERE user_id = ? ORDER BY source').all(u.id)
   const host = getSetting('hostname') || (await hosting.publicAddress())
   return {
     domains,
-    mailboxes: boxes.map((b) => ({ id: b.id, domainId: b.domain_id, address: b.address, quotaMb: b.quota_mb, usedBytes: used[b.address] ?? 0, createdAt: b.created_at })),
+    mailboxes: boxes.map((b) => ({
+      id: b.id, domainId: b.domain_id, address: b.address, quotaMb: b.quota_mb, usedBytes: used[b.address] ?? 0,
+      autoreply: b.autoreply ? (JSON.parse(b.autoreply) as Autoreply) : null, spamToJunk: !!b.spam_to_junk, createdAt: b.created_at,
+    })),
     forwarders: forwarders.map((f) => ({ id: f.id, domainId: f.domain_id, source: f.source, destinations: JSON.parse(f.destinations) as string[] })),
     limit: hosting.hostingLimits(u).mailboxes ?? null,
     settings: { host, imap: 993, pop3: 995, smtp: 465, submission: 587 },
@@ -77,14 +98,22 @@ route('POST', '/api/mail/mailboxes', async (ctx) => {
     db.query('DELETE FROM mailboxes WHERE id = ?').run(id)
     throw error
   }
+  await writeSieve(u.username, address, true, null).catch(() => null)
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'created mailbox', detail: address, ip: ctx.ip })
   return { mailbox: { id, address } }
 })
 
 route('PATCH', '/api/mail/mailboxes/:id', async (ctx) => {
   const u = me(ctx)
-  const box = db.query<{ id: number; address: string }, [number, number]>('SELECT id, address FROM mailboxes WHERE id = ? AND user_id = ?').get(Number(ctx.params.id), u.id)
+  const box = db.query<{ id: number; address: string; autoreply: string | null; spam_to_junk: number }, [number, number]>(
+    'SELECT id, address, autoreply, spam_to_junk FROM mailboxes WHERE id = ? AND user_id = ?').get(Number(ctx.params.id), u.id)
   if (!box) throw new HttpError(404, 'Mailbox not found.', 'not_found')
+  if (ctx.body.autoreply !== undefined || ctx.body.spamToJunk !== undefined) {
+    const reply = ctx.body.autoreply === undefined ? (box.autoreply ? JSON.parse(box.autoreply) as Autoreply : null) : cleanAutoreply(ctx.body.autoreply)
+    const spam = ctx.body.spamToJunk === undefined ? !!box.spam_to_junk : ctx.body.spamToJunk === true
+    await writeSieve(u.username, box.address, spam, reply)
+    db.query('UPDATE mailboxes SET autoreply = ?, spam_to_junk = ? WHERE id = ?').run(reply ? JSON.stringify(reply) : null, spam ? 1 : 0, box.id)
+  }
   if (ctx.body.password !== undefined) db.query('UPDATE mailboxes SET password_hash = ? WHERE id = ?').run(await hashMailPassword(checkPassword(ctx.body.password)), box.id)
   if (ctx.body.quotaMb !== undefined) db.query('UPDATE mailboxes SET quota_mb = ? WHERE id = ?').run(checkQuota(u, ctx.body.quotaMb), box.id)
   await syncMail()

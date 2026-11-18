@@ -82,6 +82,9 @@ export interface Website {
   aliases: string[]
   ssl: { expiresAt: number | null } | null
   forceHttps: boolean
+  redirect: { to: string; code: number; keepPath: boolean } | null
+  errorPages: Record<string, string>
+  protected: { id: number; path: string; users: string[] }[]
   createdAt: number
 }
 
@@ -92,6 +95,7 @@ export interface HostingInfo {
   previewUrl: string
   sftp: { host: string; port: number; username: string; ssh: boolean }
   ftp: boolean
+  overBandwidth: boolean
   phpVersions: string[]
   phpSettings: Record<string, string | boolean>
   limits: Record<string, number | boolean | null>
@@ -144,6 +148,7 @@ export interface Vps {
   cpuNs: number | null
   trafficBytes: number
   throttled: boolean
+  publicIps: string[]
   createdAt: number
 }
 

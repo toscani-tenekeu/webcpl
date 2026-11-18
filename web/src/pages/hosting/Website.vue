@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ChevronRightIcon, LockIcon, PlusIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/vue'
+import { BarChart3Icon, ChevronRightIcon, LockIcon, PlusIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import ConfirmDialog from '@/components/app/ConfirmDialog.vue'
+import SiteRules from '@/components/app/SiteRules.vue'
 import LoadError from '@/components/LoadError.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +29,8 @@ const tab = computed(() => String(route.params.tab || 'settings'))
 const { data, error, reload } = useResource<{ domains: Website[] }>('/api/domains')
 const info = useResource<HostingInfo>('/api/hosting')
 const site = computed(() => data.value?.domains.find((d) => d.id === id.value))
+const statsUrl = computed(() => `/api/domains/${id.value}/stats`)
+const siteUrl = computed(() => (site.value ? `${site.value.ssl ? 'https' : 'http'}://${site.value.name}` : ''))
 const subdomains = computed(() => (data.value?.domains ?? []).filter((d) => d.parentId === id.value))
 
 // ---- settings ----
@@ -163,12 +166,16 @@ const goTab = (value: string | number) => router.replace(value === 'settings' ? 
         </h2>
         <p class="text-muted-foreground mt-1 font-mono text-sm">~/{{ site.docroot }}</p>
       </div>
-      <Button variant="outline" as-child><a :href="`${site.ssl ? 'https' : 'http'}://${site.name}`" target="_blank" rel="noreferrer">{{ t('Open the site') }}</a></Button>
+      <div class="flex gap-2">
+        <Button variant="outline" as-child><a :href="statsUrl" target="_blank" rel="noreferrer"><BarChart3Icon data-icon="inline-start" /> {{ t('Statistics') }}</a></Button>
+        <Button variant="outline" as-child><a :href="siteUrl" target="_blank" rel="noreferrer">{{ t('Open the site') }}</a></Button>
+      </div>
     </div>
 
     <Tabs v-if="!site.parentId" :model-value="tab" @update:model-value="goTab">
       <TabsList>
         <TabsTrigger value="settings" class="px-3">{{ t('Settings') }}</TabsTrigger>
+        <TabsTrigger value="rules" class="px-3">{{ t('Rules') }}</TabsTrigger>
         <TabsTrigger value="dns" class="px-3">DNS</TabsTrigger>
       </TabsList>
     </Tabs>
@@ -269,6 +276,8 @@ const goTab = (value: string | number) => router.replace(value === 'settings' ? 
         </CardHeader>
       </Card>
     </template>
+
+    <SiteRules v-else-if="tab === 'rules'" :site="site" @changed="reload" />
 
     <template v-else-if="tab === 'dns'">
       <LoadError :message="dnsError" />

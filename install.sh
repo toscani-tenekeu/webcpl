@@ -105,7 +105,7 @@ component() { # component name function
 
 say "Installing base packages"
 apt-get update -q
-"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone ufw fail2ban python3-systemd
+"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone ufw fail2ban python3-systemd goaccess
 
 if ! command -v bun >/dev/null && [ ! -x /usr/local/bin/bun ]; then
   say "Installing Bun"
@@ -168,6 +168,11 @@ HTML
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Suspended</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center}</style></head>
 <body><main><h1>This website is suspended</h1><p>Please contact the website's owner.</p></main></body></html>
+HTML
+  cat > /var/www/webcpl-default/webcpl-bandwidth.html <<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bandwidth limit reached</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center;max-width:32rem;padding:1rem}</style></head>
+<body><main><h1>This website used its monthly bandwidth</h1><p>It comes back at the start of next month, or sooner if its owner raises the limit.</p></main></body></html>
 HTML
   cat > /etc/nginx/conf.d/webcpl.conf <<'NGINX'
 # Written by the Webcpl installer.
@@ -286,10 +291,6 @@ install_ftp() {
 }
 
 install_mail() {
-  # Dovecot 2.4 (Debian 13) uses a new configuration format that Webcpl does not write yet.
-  local dv
-  dv=$(apt-cache policy dovecot-core | awk '/Candidate:/{print $2}')
-  case "$dv" in 1:2.4*|2.4*) warn "mail needs Dovecot 2.3; this system has $dv. Mail is skipped for now."; return 1 ;; esac
   echo "postfix postfix/main_mailer_type select Internet Site" | debconf-set-selections
   echo "postfix postfix/mailname string $(hostname -f 2>/dev/null || hostname)" | debconf-set-selections
   "${APT[@]}" install postfix dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve dovecot-managesieved rspamd redis-server ssl-cert || return 1
@@ -325,6 +326,96 @@ install_mail() {
   done
   postconf -P "submission/inet/smtpd_tls_security_level=encrypt" "smtps/inet/smtpd_tls_wrappermode=yes"
 
+  # Dovecot 2.4 (Debian 13) and 2.3 read different configuration formats.
+  if dovecot --version | grep -q '^2\.4\.'; then
+  cat > /etc/dovecot/conf.d/99-webcpl.conf <<'DOVECOT'
+# Written by the Webcpl installer (Dovecot 2.4). Mailboxes live in their account's home
+# and are read and written with the account's own user ID.
+protocols = imap pop3 lmtp sieve
+ssl = yes
+ssl_server_cert_file = /etc/webcpl/mail/cert.pem
+ssl_server_key_file = /etc/webcpl/mail/key.pem
+auth_allow_cleartext = no
+auth_mechanisms = plain login
+mail_driver = maildir
+mail_path = ~/Maildir
+# Debian's 10-mail.conf puts homes under /home/<name> and inboxes in /var/mail; here both
+# come from the mailbox list and stay in the account's folder.
+mail_home =
+mail_inbox_path = ~/Maildir
+first_valid_uid = 1000
+passdb passwd-file {
+  passwd_file_path = /etc/dovecot/webcpl-users
+  auth_username_format = %{user | lower}
+  default_password_scheme = ARGON2ID
+}
+userdb passwd-file {
+  passwd_file_path = /etc/dovecot/webcpl-users
+  auth_username_format = %{user | lower}
+}
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+}
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+mail_plugins {
+  quota = yes
+}
+quota "User quota" {
+  driver = count
+}
+quota_exceeded_message = The mailbox is full.
+protocol lmtp {
+  # Debian's 20-lmtp.conf strips the domain; mailboxes are full addresses here.
+  auth_username_format = %{user | lower}
+  mail_plugins {
+    sieve = yes
+  }
+}
+protocol imap {
+  mail_plugins {
+    imap_quota = yes
+  }
+}
+sieve_script personal {
+  driver = file
+  path = ~/sieve
+  active_path = ~/.dovecot.sieve
+}
+namespace inbox {
+  inbox = yes
+  mailbox Drafts {
+    special_use = \Drafts
+    auto = subscribe
+  }
+  mailbox Sent {
+    special_use = \Sent
+    auto = subscribe
+  }
+  mailbox Junk {
+    special_use = \Junk
+    auto = subscribe
+  }
+  mailbox Trash {
+    special_use = \Trash
+    auto = subscribe
+  }
+}
+# Webmail connects from the server itself and may sign in without TLS.
+remote 127.0.0.1 {
+  auth_allow_cleartext = yes
+}
+DOVECOT
+  else
   cat > /etc/dovecot/conf.d/99-webcpl.conf <<'DOVECOT'
 # Written by the Webcpl installer. Mailboxes live in their account's home and are
 # read and written with the account's own user ID.
@@ -394,6 +485,7 @@ remote 127.0.0.1 {
   disable_plaintext_auth = no
 }
 DOVECOT
+  fi
   rm -f /etc/dovecot/conf.d/99-webcpl-local.conf
 
   install -d -o _rspamd -g _rspamd /var/lib/rspamd/dkim

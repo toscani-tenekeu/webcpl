@@ -174,6 +174,18 @@ CREATE TABLE IF NOT EXISTS metrics (
   rx INTEGER NOT NULL,
   tx INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ssh_keys (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  key TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS vps_ips (
+  ip TEXT PRIMARY KEY,
+  vps_id INTEGER REFERENCES vps(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS usage (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   period TEXT NOT NULL,
@@ -190,6 +202,12 @@ for (const statement of [
   'ALTER TABLE users ADD COLUMN disk_measured_at INTEGER',
   "ALTER TABLE databases ADD COLUMN engine TEXT NOT NULL DEFAULT 'mariadb'",
   'ALTER TABLE users ADD COLUMN redis_enabled INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE users ADD COLUMN over_bandwidth INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE domains ADD COLUMN redirect TEXT',
+  "ALTER TABLE domains ADD COLUMN error_pages TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE domains ADD COLUMN protected TEXT NOT NULL DEFAULT '[]'",
+  'ALTER TABLE mailboxes ADD COLUMN autoreply TEXT',
+  'ALTER TABLE mailboxes ADD COLUMN spam_to_junk INTEGER NOT NULL DEFAULT 1',
 ]) {
   try {
     db.exec(statement)
@@ -225,6 +243,7 @@ export interface UserRow {
   disk_used: number | null
   disk_measured_at: number | null
   redis_enabled: number
+  over_bandwidth: number
 }
 
 export interface DomainRow {
@@ -239,6 +258,12 @@ export interface DomainRow {
   ssl_key: string | null
   ssl_expires_at: number | null
   force_https: number
+  /** JSON {to, code, keepPath} or null. */
+  redirect: string | null
+  /** JSON {"404": "/404.html"}. */
+  error_pages: string
+  /** JSON [{id, path, users: [{name, hash}]}]. */
+  protected: string
   created_at: number
 }
 

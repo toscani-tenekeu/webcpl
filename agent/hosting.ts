@@ -1,5 +1,5 @@
 // Shared hosting accounts: Linux user, PHP-FPM services, resource limits and websites.
-import { chownSync, existsSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs'
+import { chownSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
 import { type Args, domain, homePath, ids, must, phpVersion, readText, removeFile, run, username, writeAtomic } from './lib.ts'
 
 const SYSTEMD = '/etc/systemd/system'
@@ -71,6 +71,55 @@ async function setShell(user: string, ssh: boolean) {
 }
 
 export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
+  /** The account's SSH public keys, for SSH and SFTP sign-in. */
+  'account.sshkeys': async (args) => {
+    const user = username(args)
+    const keys = ((args.keys ?? []) as unknown[]).map(String).map((k) => k.trim())
+    for (const k of keys) {
+      if (!/^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$/.test(k)) throw new Error('Invalid SSH key.')
+    }
+    await must(['runuser', '-u', user, '--', 'mkdir', '-p', '-m', '0700', `/home/${user}/.ssh`], 'Could not create ~/.ssh')
+    await must(['runuser', '-u', user, '--', 'tee', `/home/${user}/.ssh/authorized_keys`], 'Could not save the keys', { input: keys.join('\n') + (keys.length ? '\n' : '') })
+    await must(['runuser', '-u', user, '--', 'chmod', '0600', `/home/${user}/.ssh/authorized_keys`], 'Could not protect the keys')
+    return { ok: true }
+  },
+
+  /** The password file of one protected folder: bcrypt hashes made by the panel. */
+  'htpasswd.write': async (args) => {
+    const user = username(args)
+    const file = htpasswdPath(user, args.file)
+    const entries = ((args.entries ?? []) as Record<string, unknown>[]).map((e) => {
+      const name = String(e.name ?? '')
+      const hash = String(e.hash ?? '')
+      if (!/^[A-Za-z0-9._-]{1,32}$/.test(name) || !/^\$2y\$\d\d\$[./A-Za-z0-9]{53}$/.test(hash)) throw new Error('Invalid username or password hash.')
+      return `${name}:${hash}`
+    })
+    mkdirSync(`/etc/webcpl/htpasswd/${user}`, { recursive: true, mode: 0o750 })
+    // Apache passes through the parent and reads only its account's folder.
+    await must(['chown', 'root:root', '/etc/webcpl/htpasswd'], 'chown htpasswd')
+    await must(['chmod', '0711', '/etc/webcpl/htpasswd'], 'chmod htpasswd')
+    await must(['chgrp', 'www-data', `/etc/webcpl/htpasswd/${user}`], 'chgrp htpasswd')
+    writeAtomic(file, entries.join('\n') + '\n', 0o640)
+    await must(['chgrp', 'www-data', file], 'chgrp htpasswd')
+    return { ok: true }
+  },
+  'htpasswd.delete': async (args) => {
+    const user = username(args)
+    removeFile(htpasswdPath(user, args.file))
+    return { ok: true }
+  },
+  /** A GoAccess report of a site's visitors, from its nginx access log. */
+  'stats.report': async (args) => {
+    const user = username(args)
+    const name = domain(args.name)
+    if (!Bun.which('goaccess')) throw new Error('Visitor statistics need GoAccess, which is not installed.')
+    const logs = [`${LOGS}/${user}/${name}.access.log`, `${LOGS}/${user}/${name}.access.log.1`].filter((f) => existsSync(f))
+    if (!logs.length) throw new Error('This website has no visits recorded yet.')
+    const r = await run(['goaccess', ...logs, '--log-format=COMBINED', '--no-global-config', '-o', 'html', '--html-report-title', name], { timeout: 120_000 })
+    if (!r.ok) throw new Error(`The report could not be made: ${r.stderr.trim().split('\n').at(-1)}`)
+    return { html: r.stdout }
+  },
+
   'account.create': async (args) => {
     const user = username(args)
     const password = String(args.password ?? '')
@@ -136,6 +185,7 @@ export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
 
   'account.delete': async (args) => {
     const user = username(args)
+    rmSync(`/etc/webcpl/htpasswd/${user}`, { recursive: true, force: true })
     if (!(await run(['id', user])).ok) return { ok: true }
     const { uid } = await ids(user)
     const units = phpUnits(user)
@@ -248,6 +298,7 @@ WantedBy=multi-user.target
   'site.write': async (args) => {
     const user = username(args)
     const site = siteFrom(user, args.site)
+    if (site.overBandwidth && !existsSync('/var/www/webcpl-default/webcpl-bandwidth.html')) writeAtomic('/var/www/webcpl-default/webcpl-bandwidth.html', BANDWIDTH_PAGE)
     // Websockets to apps need this map once; older installs did not write it.
     if (site.appPort && !existsSync('/etc/nginx/conf.d/webcpl-upgrade.conf')) {
       writeAtomic('/etc/nginx/conf.d/webcpl-upgrade.conf', "map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n")
@@ -323,9 +374,22 @@ interface Site {
   ssl: { cert: string; key: string } | null
   forceHttps: boolean
   suspended: boolean
+  /** Out of monthly bandwidth: the site answers 509 until the next month. */
+  overBandwidth: boolean
+  /** The whole site sends visitors elsewhere. */
+  redirect: { to: string; code: 301 | 302; keepPath: boolean } | null
+  /** Folders behind a username and password (Apache basic auth). */
+  protected: { path: string; file: string }[]
+  /** Pages shown for errors, relative to the site's folder. */
+  errorPages: Record<string, string>
   /** Set when the site is served by one of the account's apps instead of PHP. */
   appPort: number | null
 }
+
+const BANDWIDTH_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bandwidth limit reached</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center;max-width:32rem;padding:1rem}</style></head>
+<body><main><h1>This website used its monthly bandwidth</h1><p>It comes back at the start of next month, or sooner if its owner raises the limit.</p></main></body></html>
+`
 
 function siteFrom(user: string, input: unknown): Site {
   const s = (input ?? {}) as Record<string, unknown>
@@ -343,8 +407,33 @@ function siteFrom(user: string, input: unknown): Site {
     ssl: ssl ? { cert: certPath(ssl.cert), key: certPath(ssl.key) } : null,
     forceHttps: s.forceHttps === true && !!ssl,
     suspended: s.suspended === true,
+    overBandwidth: s.overBandwidth === true,
+    redirect: redirectFrom(s.redirect),
+    protected: ((s.protected ?? []) as Record<string, unknown>[]).slice(0, 50).map((p) => ({ path: webPath(p.path), file: htpasswdPath(user, p.file) })),
+    errorPages: Object.fromEntries(Object.entries((s.errorPages ?? {}) as Record<string, unknown>)
+      .filter(([code]) => ['403', '404', '500', '503'].includes(code)).map(([code, page]) => [code, webPath(page)])),
     appPort: appPort(s.appPort),
   }
+}
+
+function redirectFrom(value: unknown): Site['redirect'] {
+  if (!value || typeof value !== 'object') return null
+  const r = value as Record<string, unknown>
+  const to = String(r.to ?? '')
+  if (!/^https?:\/\/[^\s"'`$\\{};<>]+$/.test(to) || to.length > 500) throw new Error('Invalid redirect address.')
+  return { to: to.replace(/\/+$/, ''), code: r.code === 302 ? 302 : 301, keepPath: r.keepPath !== false }
+}
+
+function webPath(value: unknown) {
+  const path = String(value ?? '')
+  if (!/^\/[A-Za-z0-9._~\/-]{0,200}$/.test(path) || path.split('/').includes('..')) throw new Error('Invalid path.')
+  return path
+}
+
+function htpasswdPath(user: string, value: unknown) {
+  const file = String(value ?? '')
+  if (!new RegExp(`^/etc/webcpl/htpasswd/${user}/[a-z0-9.-]+-[0-9]+$`).test(file)) throw new Error('Invalid password file.')
+  return file
 }
 
 function appPort(value: unknown) {
@@ -360,6 +449,10 @@ function siteChanges(user: string, site: Site): Change[] {
   const acme = `    location /.well-known/acme-challenge/ { root ${ACME_ROOT}; }`
   const body = site.suspended
     ? `    location / { return 503; }\n    error_page 503 /webcpl-suspended.html;\n    location = /webcpl-suspended.html { root /var/www/webcpl-default; internal; }`
+    : site.redirect
+    ? `    location / { return ${site.redirect.code} ${site.redirect.to}${site.redirect.keepPath ? '$request_uri' : ''}; }`
+    : site.overBandwidth
+    ? `    location / { return 509; }\n    error_page 509 /webcpl-bandwidth.html;\n    location = /webcpl-bandwidth.html { root /var/www/webcpl-default; internal; }`
     : site.appPort
     ? `    location / {
         proxy_pass http://127.0.0.1:${site.appPort};
@@ -401,7 +494,13 @@ ${site.aliases.length ? `    ServerAlias ${site.aliases.join(' ')}\n` : ''}    D
         Options -Indexes +SymLinksIfOwnerMatch
         Require all granted
     </Directory>
-    <FilesMatch "\\.php$">
+${Object.entries(site.errorPages).map(([code, page]) => `    ErrorDocument ${code} ${page}\n`).join('')}${site.protected.map((p) => `    <Location "${p.path}">
+        AuthType Basic
+        AuthName "Restricted"
+        AuthUserFile ${p.file}
+        Require valid-user
+    </Location>
+`).join('')}    <FilesMatch "\\.php$">
         SetHandler "proxy:unix:/run/webcpl-php-${user}-${site.php}/php.sock|fcgi://localhost"
     </FilesMatch>
 </VirtualHost>
