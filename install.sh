@@ -191,11 +191,16 @@ install_dns() {
   if [ ! -s "$db" ]; then sqlite3 "$db" < /usr/share/pdns-backend-sqlite3/schema/schema.sqlite3.sql && chown pdns:pdns "$db"; fi
   key=$(cat "$CONF/pdns-api-key" 2>/dev/null || head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
   printf '%s\n' "$key" > "$CONF/pdns-api-key" && chmod 600 "$CONF/pdns-api-key"
+  # Only the server's own addresses: binding every address would take port 53 from the
+  # DNS service Incus and other bridges run for their containers.
+  local listen
+  listen=$(ip -o addr show scope global | awk '$2 !~ /^(lo|docker|br-|veth|virbr|lxdbr|incusbr)/ {split($4, a, "/"); print a[1]}' | paste -sd, -)
+  [ -n "$listen" ] || listen="0.0.0.0"
   cat > /etc/powerdns/pdns.d/webcpl.conf <<PDNS
 # Written by the Webcpl installer.
 launch=gsqlite3
 gsqlite3-database=$db
-local-address=0.0.0.0, ::
+local-address=$listen
 api=yes
 api-key=$key
 webserver=yes
