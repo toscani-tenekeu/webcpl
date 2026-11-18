@@ -35,6 +35,7 @@ async function savePhp() {
   saving.value = false
 }
 
+const ftpLine = computed(() => (data.value ? `ftp://${data.value.sftp.username}@${data.value.sftp.host}` : ''))
 const diskLimit = computed(() => (typeof data.value?.limits.disk_mb === 'number' ? data.value.limits.disk_mb * 1024 * 1024 : null))
 const bandwidthLimit = computed(() => (typeof data.value?.limits.bandwidth_gb === 'number' ? data.value.limits.bandwidth_gb * 1e9 : null))
 const FIELDS = [
@@ -64,6 +65,10 @@ const FIELDS = [
           <CopyLine :text="`sftp ${data.sftp.username}@${data.sftp.host}`" />
           <CopyLine v-if="data.sftp.ssh" :text="`ssh ${data.sftp.username}@${data.sftp.host}`" />
           <p v-else class="text-muted-foreground text-xs">{{ t('Your plan includes SFTP file access, not a shell.') }}</p>
+          <div v-if="data?.ftp" class="flex flex-col gap-3">
+            <CopyLine :text="ftpLine" />
+            <p class="text-muted-foreground text-xs">{{ t('FTP works too, on port 21 with “explicit TLS”. Prefer SFTP when your app supports it.') }}</p>
+          </div>
         </CardContent>
       </Card>
       <Card>

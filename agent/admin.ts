@@ -172,6 +172,11 @@ if [ -f /etc/webcpl/mail/cert.pem ]; then
   install -m 0600 "$RENEWED_LINEAGE/privkey.pem" /etc/webcpl/mail/key.pem
   systemctl reload postfix dovecot 2>/dev/null || true
 fi
+if [ -f /etc/ssl/private/pure-ftpd.pem ]; then
+  cat "$RENEWED_LINEAGE/privkey.pem" "$RENEWED_LINEAGE/fullchain.pem" > /etc/ssl/private/pure-ftpd.pem
+  chmod 0600 /etc/ssl/private/pure-ftpd.pem
+  systemctl restart pure-ftpd 2>/dev/null || true
+fi
 systemctl restart webcpl 2>/dev/null || true
 `
     mkdirSync('/etc/letsencrypt/renewal-hooks/deploy', { recursive: true })
