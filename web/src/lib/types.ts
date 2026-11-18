@@ -148,6 +148,7 @@ export interface Vps {
   cpuNs: number | null
   trafficBytes: number
   throttled: boolean
+  publicIps: string[]
   createdAt: number
 }
 

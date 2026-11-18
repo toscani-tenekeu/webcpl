@@ -3,6 +3,7 @@ import { BoxIcon, DicesIcon, PlusIcon } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
+import IpPool from '@/components/app/IpPool.vue'
 import VpsStatus from '@/components/app/VpsStatus.vue'
 import LoadError from '@/components/LoadError.vue'
 import { Button } from '@/components/ui/button'
@@ -133,6 +134,7 @@ onBeforeUnmount(() => (creating.value = false))
     <Skeleton v-else-if="!own.error.value" class="h-48 rounded-xl" />
   </template>
 
+  <IpPool v-if="user?.role === 'admin'" />
   <template v-if="managed">
     <h3 v-if="own" class="mt-2 text-lg font-semibold">{{ t('Your customers’ VPS') }}</h3>
     <LoadError :message="managed.data.value ? '' : managed.error.value" />

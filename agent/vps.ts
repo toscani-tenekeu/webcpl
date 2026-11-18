@@ -78,6 +78,21 @@ async function sshPort(name: string) {
   return Number.isInteger(port) && port > 0 ? port : null
 }
 
+function ipv4(value: unknown) {
+  const ip = String(value ?? '')
+  const parts = ip.split('.')
+  if (parts.length !== 4 || !parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255)) throw new Error('Invalid IPv4 address.')
+  return ip
+}
+
+/** The host interface that carries the default route: routed addresses arrive on it. */
+async function defaultInterface() {
+  const r = await run(['ip', '-4', 'route', 'show', 'default'])
+  const dev = r.stdout.match(/\bdev (\S+)/)?.[1]
+  if (!dev || !/^[A-Za-z0-9._-]{1,15}$/.test(dev)) throw new Error('Could not find the server\'s main network interface.')
+  return dev
+}
+
 async function exec(name: string, script: string, timeout = 60_000, input?: string) {
   return incus(['exec', name, '--', '/bin/sh', '-c', script], { timeout, input })
 }
@@ -223,6 +238,24 @@ export const vpsOps: Record<string, (args: Args) => Promise<unknown>> = {
     if (args.on) await incus(['config', 'device', 'override', name, 'eth0', 'limits.ingress=1Mbit', 'limits.egress=1Mbit']).catch(() =>
       incus(['config', 'device', 'set', name, 'eth0', 'limits.ingress=1Mbit', 'limits.egress=1Mbit']))
     else await incus(['config', 'device', 'unset', name, 'eth0', 'limits.ingress']).then(() => incus(['config', 'device', 'unset', name, 'eth0', 'limits.egress'])).catch(() => {})
+    return { ok: true }
+  },
+  /** Gives the VPS a public IPv4 address routed to this host (Incus routed NIC). */
+  'vps.ip.attach': async (args) => {
+    const name = await managed(args.name)
+    const ip = ipv4(args.ip)
+    const parent = await defaultInterface()
+    const device = `ip${ip.replace(/\./g, '-')}`
+    await incus(['config', 'device', 'add', name, device, 'nic', 'nictype=routed', `parent=${parent}`, `ipv4.address=${ip}`])
+    // A running container picks up the new interface on its next start.
+    const state = await stateOf(name).catch(() => null)
+    if (state?.status === 'running') await incus(['restart', name, '--timeout', '30', '--force'], { timeout: 120_000 })
+    return { ok: true, device }
+  },
+  'vps.ip.detach': async (args) => {
+    const name = await managed(args.name)
+    const ip = ipv4(args.ip)
+    await incus(['config', 'device', 'remove', name, `ip${ip.replace(/\./g, '-')}`]).catch(() => null)
     return { ok: true }
   },
   'vps.snapshots': async (args) => {
