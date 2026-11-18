@@ -76,6 +76,8 @@ export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
     const password = String(args.password ?? '')
     if (password.length < 10) throw new Error('A password of at least 10 characters is needed.')
     if (!(await run(['id', user])).ok) {
+      // A group left behind by an older removal would make useradd fail.
+      if ((await run(['getent', 'group', user])).ok) await must(['groupdel', user], 'Could not remove a leftover group')
       await must(['useradd', '--create-home', '--home-dir', `/home/${user}`, '--user-group', '--shell', '/usr/sbin/nologin', user], 'Could not create the Linux user')
     }
     const { uid, gid } = await ids(user)
@@ -148,7 +150,10 @@ export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
       { path: `${PREVIEW_DIR}/${user}.conf`, content: null },
     ]
     await applyWebConfig(changes)
+    // www-data joined the account's group to read its sites; it leaves first so the group goes too.
+    await run(['gpasswd', '-d', 'www-data', user])
     await must(['userdel', '--remove', user], 'Could not remove the Linux user')
+    if ((await run(['getent', 'group', user])).ok) await run(['groupdel', user])
     await run(['rm', '-rf', `${LOGS}/${user}`])
     removeFile(`${SYSTEMD}/webcpl-${user}.slice`)
     await run(['rm', '-rf', `${SYSTEMD}/user-${uid}.slice.d`])
