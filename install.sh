@@ -266,10 +266,118 @@ PDNS
 install_ftp() { "${APT[@]}" install pure-ftpd && systemctl enable -q --now pure-ftpd; }
 
 install_mail() {
-  # Installed now, set up by a later version of Webcpl: kept stopped until then.
-  echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
-  "${APT[@]}" install postfix dovecot-imapd dovecot-pop3d dovecot-lmtpd rspamd || return 1
-  systemctl disable -q --now postfix dovecot rspamd 2>/dev/null || true
+  echo "postfix postfix/main_mailer_type select Internet Site" | debconf-set-selections
+  echo "postfix postfix/mailname string $(hostname -f)" | debconf-set-selections
+  "${APT[@]}" install postfix dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve dovecot-managesieved rspamd redis-server ssl-cert || return 1
+  install -d -m 0755 /etc/postfix/webcpl /etc/webcpl/mail
+  # A certificate for mail until the hostname gets a real one.
+  if [ ! -f /etc/webcpl/mail/cert.pem ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(hostname -f)" \
+      -keyout /etc/webcpl/mail/key.pem -out /etc/webcpl/mail/cert.pem >/dev/null 2>&1 || return 1
+    chmod 0600 /etc/webcpl/mail/key.pem
+  fi
+  for f in domains mailboxes aliases; do [ -f "/etc/postfix/webcpl/$f" ] || : > "/etc/postfix/webcpl/$f"; postmap "/etc/postfix/webcpl/$f"; done
+  [ -f /etc/dovecot/webcpl-users ] || install -m 0640 -o root -g dovecot /dev/null /etc/dovecot/webcpl-users
+
+  postconf -e "myhostname = $(hostname -f)" "mydestination = localhost" \
+    "smtpd_tls_cert_file = /etc/webcpl/mail/cert.pem" "smtpd_tls_key_file = /etc/webcpl/mail/key.pem" \
+    "smtpd_tls_security_level = may" "smtp_tls_security_level = may" "smtpd_tls_auth_only = yes" \
+    "virtual_mailbox_domains = hash:/etc/postfix/webcpl/domains" \
+    "virtual_mailbox_maps = hash:/etc/postfix/webcpl/mailboxes" \
+    "virtual_alias_maps = hash:/etc/postfix/webcpl/aliases" \
+    "virtual_transport = lmtp:unix:private/dovecot-lmtp" \
+    "smtpd_sasl_type = dovecot" "smtpd_sasl_path = private/auth" \
+    "smtpd_sender_login_maps = hash:/etc/postfix/webcpl/senders" \
+    "smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination" \
+    "smtpd_milters = inet:127.0.0.1:11332" "non_smtpd_milters = inet:127.0.0.1:11332" \
+    "milter_default_action = accept" "milter_protocol = 6" "message_size_limit = 52428800"
+  [ -f /etc/postfix/webcpl/senders ] || : > /etc/postfix/webcpl/senders; postmap /etc/postfix/webcpl/senders
+  # Submission (587, STARTTLS) and SMTPS (465) for mail clients: signed-in senders only.
+  for svc in submission smtps; do
+    postconf -M "$svc/inet=$svc inet n - y - - smtpd"
+    postconf -P "$svc/inet/syslog_name=postfix/$svc" "$svc/inet/smtpd_sasl_auth_enable=yes" \
+      "$svc/inet/smtpd_client_restrictions=permit_sasl_authenticated,reject" \
+      "$svc/inet/smtpd_sender_restrictions=reject_sender_login_mismatch"
+  done
+  postconf -P "submission/inet/smtpd_tls_security_level=encrypt" "smtps/inet/smtpd_tls_wrappermode=yes"
+
+  cat > /etc/dovecot/conf.d/99-webcpl.conf <<'DOVECOT'
+# Written by the Webcpl installer. Mailboxes live in their account's home and are
+# read and written with the account's own user ID.
+protocols = imap pop3 lmtp sieve
+ssl = required
+ssl_cert = </etc/webcpl/mail/cert.pem
+ssl_key = </etc/webcpl/mail/key.pem
+disable_plaintext_auth = yes
+auth_mechanisms = plain login
+mail_location = maildir:~/Maildir
+first_valid_uid = 1000
+mail_plugins = $mail_plugins quota
+passdb {
+  driver = passwd-file
+  args = scheme=ARGON2ID username_format=%u /etc/dovecot/webcpl-users
+}
+userdb {
+  driver = passwd-file
+  args = username_format=%u /etc/dovecot/webcpl-users
+}
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+}
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+protocol lmtp {
+  mail_plugins = $mail_plugins sieve
+}
+protocol imap {
+  mail_plugins = $mail_plugins imap_quota
+}
+plugin {
+  quota = maildir:User quota
+  quota_exceeded_message = The mailbox is full.
+  sieve = file:~/sieve;active=~/.dovecot.sieve
+}
+namespace inbox {
+  inbox = yes
+  mailbox Drafts { special_use = \Drafts
+    auto = subscribe }
+  mailbox Sent { special_use = \Sent
+    auto = subscribe }
+  mailbox Junk { special_use = \Junk
+    auto = subscribe }
+  mailbox Trash { special_use = \Trash
+    auto = subscribe }
+}
+DOVECOT
+  # Local connections (webmail) may sign in without TLS.
+  printf 'remote 127.0.0.1 {\n  disable_plaintext_auth = no\n  ssl = yes\n}\n' > /etc/dovecot/conf.d/99-webcpl-local.conf
+
+  install -d -o _rspamd -g _rspamd /var/lib/rspamd/dkim
+  cat > /etc/rspamd/local.d/dkim_signing.conf <<'RSPAMD'
+path = "/var/lib/rspamd/dkim/$domain.$selector.key";
+selector = "webcpl";
+allow_username_mismatch = true;
+use_esld = false;
+RSPAMD
+  cp /etc/rspamd/local.d/dkim_signing.conf /etc/rspamd/local.d/arc.conf
+  echo 'servers = "127.0.0.1";' > /etc/rspamd/local.d/redis.conf
+  cat > /etc/rspamd/local.d/actions.conf <<'RSPAMD'
+reject = 15;
+add_header = 6;
+greylist = 4;
+RSPAMD
+  echo 'extended_spam_headers = true;' > /etc/rspamd/local.d/milter_headers.conf
+  systemctl enable -q redis-server rspamd dovecot postfix
+  systemctl restart redis-server rspamd dovecot postfix
 }
 
 install_node() {
@@ -368,6 +476,65 @@ location ^~ /dbadmin/ {
 NGINX
   systemctl restart "php$v-fpm" && nginx -t -q && systemctl reload nginx
 }
+# SnappyMail webmail at http://IP/webmail/, with its own PHP pool, user and data folder.
+SNAPPYMAIL_VERSION=3.0.1
+install_webmail() {
+  local v=${PHP_VERSIONS%% *} dir=/usr/share/webcpl/snappymail data=/var/lib/webcpl-webmail
+  id webcpl-webmail >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin webcpl-webmail
+  if [ ! -f "$dir/.version-$SNAPPYMAIL_VERSION" ]; then
+    rm -rf "$dir.new" && install -d "$dir.new" &&
+      curl -fsSL "https://github.com/the-djmaze/snappymail/releases/download/v$SNAPPYMAIL_VERSION/snappymail-$SNAPPYMAIL_VERSION.tar.gz" | tar -xz -C "$dir.new" || return 1
+    rm -rf "$dir.new/data"
+    echo "<?php define('APP_DATA_FOLDER_PATH', '$data/');" > "$dir.new/include.php"
+    touch "$dir.new/.version-$SNAPPYMAIL_VERSION"
+    rm -rf "$dir" && mv "$dir.new" "$dir"
+  fi
+  install -d -o webcpl-webmail -g webcpl-webmail -m 0750 "$data"
+  "${APT[@]}" install "php$v-imap" >/dev/null 2>&1 || true
+  cat > "/etc/php/$v/fpm/pool.d/webcpl-webmail.conf" <<POOL
+[webcpl-webmail]
+user = webcpl-webmail
+group = webcpl-webmail
+listen = /run/php/webcpl-webmail.sock
+listen.owner = www-data
+listen.group = www-data
+pm = ondemand
+pm.max_children = 10
+php_admin_value[open_basedir] = $dir:$data:/tmp
+php_admin_value[upload_max_filesize] = 50M
+php_admin_value[post_max_size] = 52M
+POOL
+  cat > /etc/nginx/webcpl/webmail.conf <<'NGINX'
+location = /webmail { return 301 /webmail/; }
+location ^~ /webmail/ {
+    alias /usr/share/webcpl/snappymail/;
+    index index.php;
+    client_max_body_size 52m;
+    location ~ ^/webmail/(.+\.php)$ {
+        alias /usr/share/webcpl/snappymail/$1;
+        fastcgi_pass unix:/run/php/webcpl-webmail.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /usr/share/webcpl/snappymail/$1;
+    }
+}
+NGINX
+  systemctl restart "php$v-fpm" && nginx -t -q && systemctl reload nginx || return 1
+  # The first request creates SnappyMail's data; then every domain uses this server.
+  curl -fsS -o /dev/null http://127.0.0.1/webmail/ || true
+  local domains="$data/_data_/_default_/domains"
+  install -d -o webcpl-webmail -g webcpl-webmail "$domains"
+  cat > "$domains/default.json" <<'JSON'
+{"IMAP":{"host":"127.0.0.1","port":143,"type":0,"timeout":300,"shortLogin":false,"sasl":["PLAIN","LOGIN"],"ssl":{"verify_peer":false,"verify_peer_name":false,"allow_self_signed":true}},
+ "SMTP":{"host":"127.0.0.1","port":587,"type":2,"timeout":60,"shortLogin":false,"useAuth":true,"setSender":false,"usePhpMail":false,"sasl":["PLAIN","LOGIN"],"ssl":{"verify_peer":false,"verify_peer_name":false,"allow_self_signed":true}},
+ "Sieve":{"enabled":true,"host":"127.0.0.1","port":4190,"type":0,"timeout":10,"shortLogin":false,"sasl":["PLAIN","LOGIN"]},
+ "whiteList":""}
+JSON
+  chown webcpl-webmail:webcpl-webmail "$domains/default.json"
+}
+if [ -n "$PHP_VERSIONS" ] && [ "${WANT[mail]}" = 1 ]; then
+  component "Webmail" install_webmail || true
+fi
+
 if [ -n "$PHP_VERSIONS" ] && { [ "${WANT[mariadb]}" = 1 ] || [ "${WANT[postgresql]}" = 1 ]; }; then
   component "Adminer" install_adminer || true
 fi

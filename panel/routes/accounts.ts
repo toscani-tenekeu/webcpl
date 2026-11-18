@@ -4,6 +4,7 @@ import { db, logActivity, now, userById, type UserRow } from '../db.ts'
 import { HttpError } from '../errors.ts'
 import * as hosting from '../hosting.ts'
 import * as virt from '../vps.ts'
+import { syncMail } from '../mail.ts'
 import { route, type Ctx } from '../http.ts'
 
 // Account names become Linux user names for hosting, so they follow the same rules.
@@ -138,6 +139,7 @@ route('POST', '/api/accounts/:id/suspend', async (ctx) => {
   auth.destroyUserSessions(target.id)
   await hosting.suspend(userById(target.id)!)
   await virt.suspendAll(target)
+  await syncMail().catch(() => null)
   // Suspending a reseller suspends its customers' access too.
   if (target.role === 'reseller') {
     for (const customer of db.query<{ id: number }, [number]>('SELECT id FROM users WHERE owner_id = ?').all(target.id)) auth.destroyUserSessions(customer.id)
@@ -151,6 +153,7 @@ route('POST', '/api/accounts/:id/unsuspend', async (ctx) => {
   db.query("UPDATE users SET suspended = 0, suspended_reason = '' WHERE id = ?").run(target.id)
   await hosting.unsuspend(userById(target.id)!)
   await virt.unsuspendAll(target)
+  await syncMail().catch(() => null)
   logActivity({ actorId: ctx.user!.id, subjectId: target.id, action: 'unsuspended account', detail: target.username, ip: ctx.ip })
   return { account: summary(userById(target.id)!) }
 })
@@ -179,6 +182,7 @@ route('DELETE', '/api/accounts/:id', async (ctx) => {
   if (customers) throw new HttpError(409, `This reseller still has ${customers} account(s). Delete or move them first.`, 'has_accounts')
   await virt.removeAll(target)
   await hosting.deprovision(target)
+  await syncMail().catch(() => null)
   db.query('DELETE FROM plans WHERE owner_id = ?').run(target.id)
   db.query('DELETE FROM users WHERE id = ?').run(target.id)
   logActivity({ actorId: ctx.user!.id, action: 'deleted account', detail: target.username, ip: ctx.ip })

@@ -3,6 +3,7 @@ import { agent } from '../agent.ts'
 import { db, getSetting, logActivity, now, userById, type DomainRow, type UserRow } from '../db.ts'
 import { HttpError } from '../errors.ts'
 import * as hosting from '../hosting.ts'
+import * as mail from '../mail.ts'
 import { route, type Ctx } from '../http.ts'
 
 const DOMAIN = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/
@@ -102,7 +103,7 @@ route('POST', '/api/domains', async (ctx) => {
     if (components.dns) {
       const address = await hosting.publicAddress()
       const ns = await hosting.nameservers(name)
-      await agent('dns.zone.create', { zone: name, nameservers: ns, rrsets: await hosting.defaultRecords(name, address, ns) })
+      await agent('dns.zone.create', { zone: name, nameservers: ns, rrsets: [...(await hosting.defaultRecords(name, address, ns)), ...(await mail.mailRecords(name))] })
     }
   } catch (error) {
     db.query('DELETE FROM domains WHERE id = ?').run(d.id)
@@ -196,12 +197,15 @@ route('DELETE', '/api/domains/:id', async (ctx) => {
     await agent('site.delete', { user: u.username, name: site.name })
     if (site.ssl_cert) await agent('ssl.delete', { name: site.name }).catch(() => null)
   }
-  if (!d.parent_id) await agent('dns.zone.delete', { zone: d.name }).catch(() => null)
-  else {
+  if (!d.parent_id) {
+    await agent('dns.zone.delete', { zone: d.name }).catch(() => null)
+    await mail.removeDomainMail(u, d.name)
+  } else {
     const parent = db.query<DomainRow, [number]>('SELECT * FROM domains WHERE id = ?').get(d.parent_id)
     if (parent) await agent('dns.rrsets.set', { zone: parent.name, rrsets: [{ name: `${d.name}.`, type: 'A', ttl: 3600, records: [] }] }).catch(() => null)
   }
   db.query('DELETE FROM domains WHERE id = ? OR parent_id = ?').run(d.id, d.id)
+  if (!d.parent_id) await mail.syncMail().catch(() => null)
   await hosting.syncPhp(u)
   await hosting.writePreview(u)
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'deleted website', detail: d.name, ip: ctx.ip })
