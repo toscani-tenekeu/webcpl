@@ -267,19 +267,19 @@ install_ftp() { "${APT[@]}" install pure-ftpd && systemctl enable -q --now pure-
 
 install_mail() {
   echo "postfix postfix/main_mailer_type select Internet Site" | debconf-set-selections
-  echo "postfix postfix/mailname string $(hostname -f)" | debconf-set-selections
+  echo "postfix postfix/mailname string $(hostname -f 2>/dev/null || hostname)" | debconf-set-selections
   "${APT[@]}" install postfix dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve dovecot-managesieved rspamd redis-server ssl-cert || return 1
   install -d -m 0755 /etc/postfix/webcpl /etc/webcpl/mail
   # A certificate for mail until the hostname gets a real one.
   if [ ! -f /etc/webcpl/mail/cert.pem ]; then
-    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(hostname -f)" \
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(hostname -f 2>/dev/null || hostname)" \
       -keyout /etc/webcpl/mail/key.pem -out /etc/webcpl/mail/cert.pem >/dev/null 2>&1 || return 1
     chmod 0600 /etc/webcpl/mail/key.pem
   fi
   for f in domains mailboxes aliases; do [ -f "/etc/postfix/webcpl/$f" ] || : > "/etc/postfix/webcpl/$f"; postmap "/etc/postfix/webcpl/$f"; done
   [ -f /etc/dovecot/webcpl-users ] || install -m 0640 -o root -g dovecot /dev/null /etc/dovecot/webcpl-users
 
-  postconf -e "myhostname = $(hostname -f)" "mydestination = localhost" \
+  postconf -e "myhostname = $(hostname -f 2>/dev/null || hostname)" "mydestination = localhost" \
     "smtpd_tls_cert_file = /etc/webcpl/mail/cert.pem" "smtpd_tls_key_file = /etc/webcpl/mail/key.pem" \
     "smtpd_tls_security_level = may" "smtp_tls_security_level = may" "smtpd_tls_auth_only = yes" \
     "virtual_mailbox_domains = hash:/etc/postfix/webcpl/domains" \
