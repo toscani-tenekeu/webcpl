@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useColorMode } from '@vueuse/core'
 import {
-  ActivityIcon, BoxIcon, ClockIcon, CodeIcon, DatabaseIcon, FolderIcon, GlobeIcon, KeyRoundIcon, LanguagesIcon, LayoutDashboardIcon, LayersIcon, LogOutIcon, MoonIcon, ServerIcon, SettingsIcon,
+  ActivityIcon, BoxIcon, ClockIcon, CodeIcon, DatabaseIcon, FolderIcon, GlobeIcon, KeyRoundIcon, LanguagesIcon, MailIcon, LayoutDashboardIcon, LayersIcon, LogOutIcon, MoonIcon, ServerIcon, SettingsIcon,
   ShieldIcon, SunIcon, UndoIcon, UserCogIcon, UsersIcon,
 } from '@lucide/vue'
 import { computed } from 'vue'
@@ -45,6 +45,7 @@ const groups = computed(() => {
           links: [
             { to: '/websites', label: 'Websites', icon: GlobeIcon },
             { to: '/files', label: 'Files', icon: FolderIcon },
+            { to: '/mail', label: 'Mail', icon: MailIcon },
             { to: '/databases', label: 'Databases', icon: DatabaseIcon },
             { to: '/cron', label: 'Cron jobs', icon: ClockIcon },
             ...(user.value.hostingPlan.limits.apps === true ? [{ to: '/apps', label: 'Apps', icon: CodeIcon }] : []),
