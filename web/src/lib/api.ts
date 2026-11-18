@@ -1,4 +1,4 @@
-import { lang } from './i18n'
+import { lang, t } from './i18n'
 
 export class ApiError extends Error {
   status: number
@@ -38,7 +38,7 @@ export async function api<T>(path: string, options: { method?: string; body?: un
   }
   const data = await response.json().catch(() => null)
   if (!response.ok) {
-    const error = new ApiError(data?.error ?? `Error ${response.status}`, response.status, data?.code ?? '')
+    const error = new ApiError(data?.error ? t(data.error) : `Error ${response.status}`, response.status, data?.code ?? '')
     if ((error.status === 401 && !path.startsWith('/api/auth/')) || error.code === 'must_change_password') listeners.forEach((l) => l(error))
     throw error
   }

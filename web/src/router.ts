@@ -27,6 +27,8 @@ export const router = createRouter({
         { path: 'databases', component: () => import('@/pages/hosting/Databases.vue'), meta: { title: 'Databases', hosting: true } },
         { path: 'cron', component: () => import('@/pages/hosting/Cron.vue'), meta: { title: 'Cron jobs', hosting: true } },
         { path: 'access', component: () => import('@/pages/hosting/Access.vue'), meta: { title: 'Access and PHP', hosting: true } },
+        { path: 'vps', component: () => import('@/pages/vps/VpsList.vue'), meta: { title: 'VPS' } },
+        { path: 'vps/:id/:tab?', component: () => import('@/pages/vps/Vps.vue'), meta: { title: 'VPS' } },
         { path: 'activity', component: () => import('@/pages/Activity.vue'), meta: { title: 'Activity' } },
         { path: 'account', component: () => import('@/pages/MyAccount.vue'), meta: { title: 'My account' } },
       ],
