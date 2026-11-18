@@ -175,12 +175,26 @@ route('POST', '/api/apps/:id/power', async (ctx) => {
   return { ok: true }
 })
 
+// Installs can take minutes, longer than an HTTP request may stay open: they run in the
+// background and the page asks for the result.
+const installs = new Map<number, { running: boolean; ok: boolean | null; output: string; at: number }>()
+
 route('POST', '/api/apps/:id/install', async (ctx) => {
   const u = me(ctx)
   const app = own(u, ctx.params.id)
-  const result = await agent<{ ok: boolean; output: string }>('app.install', { user: u.username, name: app.name, runtime: app.runtime, version: app.version, root: app.root }, 16 * 60_000)
+  if (installs.get(app.id)?.running) throw new HttpError(409, 'An installation is already running.', 'busy')
+  installs.set(app.id, { running: true, ok: null, output: '', at: Date.now() })
   logActivity({ actorId: ctx.user!.id, subjectId: u.id, action: 'installed app dependencies', detail: app.name, ip: ctx.ip })
-  return result
+  void agent<{ ok: boolean; output: string }>('app.install', { user: u.username, name: app.name, runtime: app.runtime, version: app.version, root: app.root }, 16 * 60_000)
+    .then((r) => installs.set(app.id, { running: false, ok: r.ok, output: r.output, at: Date.now() }))
+    .catch((e: Error) => installs.set(app.id, { running: false, ok: false, output: e.message, at: Date.now() }))
+  return { running: true }
+})
+
+route('GET', '/api/apps/:id/install', (ctx) => {
+  const u = me(ctx)
+  const app = own(u, ctx.params.id)
+  return installs.get(app.id) ?? { running: false, ok: null, output: '' }
 })
 
 route('GET', '/api/apps/:id/logs', async (ctx) => {

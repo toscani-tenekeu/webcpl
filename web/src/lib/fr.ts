@@ -602,4 +602,5 @@ export const fr: Record<string, string> = {
   "restarted app": "a redémarré l'application",
   "installed app dependencies": "a installé les dépendances",
   "deleted app": "a supprimé l'application",
+  "An installation is already running.": "Une installation est déjà en cours.",
 }

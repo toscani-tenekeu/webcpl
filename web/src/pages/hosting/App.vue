@@ -67,7 +67,16 @@ async function install() {
   installing.value = true
   installOutput.value = null
   try {
-    installOutput.value = await post(`/api/apps/${id.value}/install`)
+    await post(`/api/apps/${id.value}/install`)
+    // The installation runs on the server; ask for its result every two seconds.
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const r = await api<{ running: boolean; ok: boolean | null; output: string }>(`/api/apps/${id.value}/install`)
+      if (!r.running) {
+        installOutput.value = { ok: !!r.ok, output: r.output }
+        break
+      }
+    }
   } catch (failure) {
     toast.error(messageOf(failure))
   }
