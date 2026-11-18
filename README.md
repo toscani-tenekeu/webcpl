@@ -50,7 +50,6 @@ Other options: `--port N` (default `7777`).
 
 ## Limits
 
-- Mail needs Dovecot 2.3: Ubuntu 22.04/24.04 or Debian 12. On Debian 13, mail is skipped.
 - A VPS is reached through a forwarded SSH port. Dedicated public IPs are not assigned yet.
 
 ## Manage

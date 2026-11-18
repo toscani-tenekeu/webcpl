@@ -38,6 +38,13 @@ function mailboxes(input: unknown): Mailbox[] {
   })
 }
 
+/** Dovecot 2.4 renamed the per-user quota field. */
+let dovecot24: boolean | null = null
+async function isDovecot24() {
+  if (dovecot24 === null) dovecot24 = /^2\.4\./.test((await run(['dovecot', '--version'])).stdout.trim())
+  return dovecot24
+}
+
 const homeOf = (m: Mailbox) => {
   const [local, dom] = m.address.split('@')
   return `/home/${m.user}/mail/${dom}/${local}`
@@ -71,7 +78,7 @@ export const mailOps: Record<string, (args: Args) => Promise<unknown>> = {
       const { uid, gid } = await ids(m.user)
       const home = homeOf(m)
       if (!existsSync(home)) await must(['runuser', '-u', m.user, '--', 'mkdir', '-p', '-m', '0700', home], 'Could not create the mail folder')
-      const quota = m.quotaMb ? `userdb_quota_rule=*:storage=${m.quotaMb}M` : ''
+      const quota = !m.quotaMb ? '' : (await isDovecot24()) ? `userdb_quota_storage_size=${m.quotaMb}M` : `userdb_quota_rule=*:storage=${m.quotaMb}M`
       // A suspended mailbox keeps receiving but cannot sign in.
       lines.push(`${m.address}:${m.enabled ? '' : '!'}{ARGON2ID}${m.hash}:${uid}:${gid}::${home}::${quota}`)
     }
