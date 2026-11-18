@@ -266,6 +266,10 @@ PDNS
 install_ftp() { "${APT[@]}" install pure-ftpd && systemctl enable -q --now pure-ftpd; }
 
 install_mail() {
+  # Dovecot 2.4 (Debian 13) uses a new configuration format that Webcpl does not write yet.
+  local dv
+  dv=$(apt-cache policy dovecot-core | awk '/Candidate:/{print $2}')
+  case "$dv" in 1:2.4*|2.4*) warn "mail needs Dovecot 2.3; this system has $dv. Mail is skipped for now."; return 1 ;; esac
   echo "postfix postfix/main_mailer_type select Internet Site" | debconf-set-selections
   echo "postfix postfix/mailname string $(hostname -f 2>/dev/null || hostname)" | debconf-set-selections
   "${APT[@]}" install postfix dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve dovecot-managesieved rspamd redis-server ssl-cert || return 1
