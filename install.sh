@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+# Webcpl installer.
+#
+#   curl -fsSL https://raw.githubusercontent.com/toscani-tenekeu/webcpl/main/install.sh | sudo bash
+#   sudo bash install.sh --yes --with-node --with-postgresql --php "8.3 8.4"
+#
+# Run without --yes to choose the components interactively. Options:
+#   --yes                    no questions, defaults plus the flags given
+#   --port N                 panel port (default 7777)
+#   --php "8.3 8.4"          PHP versions (8.1 to 8.4; default 8.3)
+#   --with-X / --without-X   X is one of: node python ruby mariadb postgresql redis dns ftp mail vps
+# Environment: WEBCPL_REPO (git URL or local path), WEBCPL_BRANCH (default main).
+set -Eeuo pipefail
+
+REPO="${WEBCPL_REPO:-https://github.com/toscani-tenekeu/webcpl.git}"
+BRANCH="${WEBCPL_BRANCH:-main}"
+APP=/opt/webcpl
+CONF=/etc/webcpl
+DATA=/var/lib/webcpl
+PORT=7777
+ASSUME_YES=0
+
+# Defaults: shared hosting with PHP, MariaDB, DNS and VPS on; the rest off.
+declare -A WANT=([node]=0 [python]=0 [ruby]=0 [mariadb]=1 [postgresql]=0 [redis]=0 [dns]=1 [ftp]=0 [mail]=0 [vps]=1)
+PHP_VERSIONS="8.3"
+
+say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+note() { printf '    %s\n' "$*"; }
+warn() { printf '\033[33m    ! %s\033[0m\n' "$*"; }
+die() { printf '\n\033[31mError: %s\033[0m\n' "$*" >&2; exit 1; }
+trap 'die "the installation stopped at line $LINENO. Fix the problem above and run the installer again; it is safe to re-run."' ERR
+
+# ---- options ------------------------------------------------------------------------------
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes|-y) ASSUME_YES=1 ;;
+    --port) PORT="${2:?}"; shift ;;
+    --php) PHP_VERSIONS="${2:?}"; shift ;;
+    --with-*) key="${1#--with-}"; [ -n "${WANT[$key]+x}" ] || die "unknown component: $key"; WANT[$key]=1 ;;
+    --without-*) key="${1#--without-}"; [ -n "${WANT[$key]+x}" ] || die "unknown component: $key"; WANT[$key]=0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    *) die "unknown option: $1 (see --help)" ;;
+  esac
+  shift
+done
+
+[[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT >= 1024 && PORT <= 65535 )) || die "--port must be between 1024 and 65535."
+for v in $PHP_VERSIONS; do [[ "$v" =~ ^8\.[1-4]$ ]] || die "PHP $v is not offered (choose from 8.1, 8.2, 8.3, 8.4)."; done
+
+# ---- checks -------------------------------------------------------------------------------
+
+[ "$(id -u)" -eq 0 ] || die "run the installer as root (sudo)."
+[ -r /etc/os-release ] || die "cannot identify the operating system."
+. /etc/os-release
+CODENAME="${VERSION_CODENAME:-}"
+case "${ID}:${VERSION_ID}" in
+  debian:12|debian:13|ubuntu:22.04|ubuntu:24.04) ;;
+  *) die "Webcpl supports Debian 12 and 13, and Ubuntu 22.04 and 24.04. This is ${PRETTY_NAME}." ;;
+esac
+case "$(uname -m)" in x86_64|aarch64) ;; *) die "Webcpl needs a 64-bit x86 or ARM processor." ;; esac
+[ -d /run/systemd/system ] || die "systemd must be running."
+if [ -d "$CONF" ] && [ -f "$CONF/components.json" ] && [ ! -d "$APP/.git" ]; then die "$CONF exists from another installation. Remove it first."; fi
+
+# ---- choices ------------------------------------------------------------------------------
+
+ask() { # ask "question" default(0/1) -> sets REPLY_BOOL
+  local q="$1" def="$2" hint answer
+  hint=$([ "$def" = 1 ] && echo "Y/n" || echo "y/N")
+  read -r -p "    $q [$hint] " answer </dev/tty || answer=""
+  case "${answer,,}" in y|yes|o|oui) REPLY_BOOL=1 ;; n|no|non) REPLY_BOOL=0 ;; *) REPLY_BOOL=$def ;; esac
+}
+
+if [ "$ASSUME_YES" = 0 ] && [ -e /dev/tty ] && (: </dev/tty) 2>/dev/null; then
+  say "Choose what to install (Enter keeps the default)"
+  read -r -p "    PHP versions, from 8.1 8.2 8.3 8.4 [$PHP_VERSIONS] " answer </dev/tty || answer=""
+  if [ -n "$answer" ]; then PHP_VERSIONS="$answer"; fi
+  for v in $PHP_VERSIONS; do [[ "$v" =~ ^8\.[1-4]$ ]] || die "PHP $v is not offered."; done
+  declare -A LABEL=([node]="Node.js apps" [python]="Python apps" [ruby]="Ruby apps" [mariadb]="MariaDB" [postgresql]="PostgreSQL"
+    [redis]="Redis" [dns]="DNS server (PowerDNS)" [ftp]="FTP server (SFTP is always available)" [mail]="Mail server" [vps]="VPS hosting (LXC with Incus)")
+  for key in mariadb postgresql redis node python ruby dns ftp mail vps; do
+    ask "${LABEL[$key]}?" "${WANT[$key]}"; WANT[$key]=$REPLY_BOOL
+  done
+fi
+
+say "Installing Webcpl on ${PRETTY_NAME}"
+note "Panel port: $PORT    PHP: $PHP_VERSIONS"
+for key in mariadb postgresql redis node python ruby dns ftp mail vps; do if [ "${WANT[$key]}" = 1 ]; then note "+ $key"; fi; done
+
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
+APT=(apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+FAILED=()
+
+# A component that fails to install is reported at the end; the rest carries on.
+component() { # component name function
+  local name="$1"; shift
+  say "Installing $name"
+  if ( set +e; trap - ERR; "$@" ); then return 0; fi
+  warn "$name could not be installed; Webcpl continues without it."
+  FAILED+=("$name")
+  return 1
+}
+
+# ---- base -----------------------------------------------------------------------------------
+
+say "Installing base packages"
+apt-get update -q
+"${APT[@]}" install ca-certificates curl git unzip gnupg lsb-release acl sudo openssh-server
+
+if ! command -v bun >/dev/null && [ ! -x /usr/local/bin/bun ]; then
+  say "Installing Bun"
+  curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/dev/null
+fi
+BUN=/usr/local/bin/bun
+[ -x "$BUN" ] || BUN="$(command -v bun)"
+"$BUN" --version >/dev/null || die "Bun does not run on this system."
+
+id webcpl >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin webcpl
+install -d -m 755 "$CONF"
+install -d -m 700 -o webcpl -g webcpl "$DATA"
+
+# ---- components -------------------------------------------------------------------------------
+
+install_web() {
+  "${APT[@]}" install nginx apache2 || return 1
+  # Apache sits behind nginx on the loopback, so .htaccess works while nginx serves the outside.
+  sed -i 's/^Listen 80$/Listen 127.0.0.1:8080/; s/^\(\s*\)Listen 443$/\1# Listen 443 (nginx handles TLS)/' /etc/apache2/ports.conf
+  sed -i 's/<VirtualHost \*:80>/<VirtualHost 127.0.0.1:8080>/' /etc/apache2/sites-available/000-default.conf
+  a2enmod -q proxy_fcgi setenvif rewrite headers remoteip expires >/dev/null
+  install -d /var/www/webcpl-default
+  cat > /var/www/webcpl-default/index.html <<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Webcpl</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center}</style></head>
+<body><main><h1>It works</h1><p>This server is managed with Webcpl. No website is set up on this address yet.</p></main></body></html>
+HTML
+  cat > /etc/nginx/sites-available/webcpl-default <<'NGINX'
+# Answers for addresses and names that no website claims yet.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    root /var/www/webcpl-default;
+    location / { try_files $uri /index.html; }
+}
+NGINX
+  rm -f /etc/nginx/sites-enabled/default
+  ln -sf /etc/nginx/sites-available/webcpl-default /etc/nginx/sites-enabled/webcpl-default
+  nginx -t -q && systemctl reload-or-restart nginx && systemctl restart apache2 && systemctl enable -q nginx apache2
+}
+
+php_repo() {
+  if [ "$ID" = ubuntu ]; then
+    "${APT[@]}" install software-properties-common && add-apt-repository -y ppa:ondrej/php >/dev/null
+  else
+    curl -fsSLo /tmp/sury.deb https://packages.sury.org/debsuryorg-archive-keyring.deb && dpkg -i /tmp/sury.deb >/dev/null &&
+      echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $CODENAME main" > /etc/apt/sources.list.d/php.list
+  fi
+  apt-get update -q
+}
+
+install_php() {
+  php_repo || warn "the PHP repository could not be added; only the system's own PHP version is available."
+  local v pkgs=()
+  for v in $PHP_VERSIONS; do
+    for ext in fpm cli common mysql pgsql sqlite3 curl gd mbstring xml zip intl bcmath opcache readline; do pkgs+=("php$v-$ext"); done
+  done
+  "${APT[@]}" install "${pkgs[@]}" || return 1
+  for v in $PHP_VERSIONS; do systemctl enable -q --now "php$v-fpm"; done
+}
+
+install_mariadb() { "${APT[@]}" install mariadb-server mariadb-client && systemctl enable -q --now mariadb; }
+install_postgresql() { "${APT[@]}" install postgresql && systemctl enable -q --now postgresql; }
+
+install_redis() {
+  # Each account gets its own instance later; the shared default one stays off.
+  "${APT[@]}" install redis-server && systemctl disable -q --now redis-server
+}
+
+install_dns() {
+  "${APT[@]}" install pdns-server pdns-backend-sqlite3 sqlite3 || return 1
+  # PowerDNS needs port 53, which systemd-resolved's local stub holds on Ubuntu.
+  if systemctl is-active -q systemd-resolved; then
+    install -d /etc/systemd/resolved.conf.d
+    printf '[Resolve]\nDNSStubListener=no\n' > /etc/systemd/resolved.conf.d/webcpl.conf
+    systemctl restart systemd-resolved
+    ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+  fi
+  rm -f /etc/powerdns/pdns.d/bind.conf
+  local db=/var/lib/powerdns/pdns.sqlite3 key
+  install -d -o pdns -g pdns /var/lib/powerdns
+  if [ ! -s "$db" ]; then sqlite3 "$db" < /usr/share/pdns-backend-sqlite3/schema/schema.sqlite3.sql && chown pdns:pdns "$db"; fi
+  key=$(cat "$CONF/pdns-api-key" 2>/dev/null || head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
+  printf '%s\n' "$key" > "$CONF/pdns-api-key" && chmod 600 "$CONF/pdns-api-key"
+  cat > /etc/powerdns/pdns.d/webcpl.conf <<PDNS
+# Written by the Webcpl installer.
+launch=gsqlite3
+gsqlite3-database=$db
+local-address=0.0.0.0, ::
+api=yes
+api-key=$key
+webserver=yes
+webserver-address=127.0.0.1
+webserver-port=8081
+webserver-allow-from=127.0.0.1,::1
+PDNS
+  systemctl enable -q pdns && systemctl restart pdns
+}
+
+install_ftp() { "${APT[@]}" install pure-ftpd && systemctl enable -q --now pure-ftpd; }
+
+install_mail() {
+  # Installed now, set up by a later version of Webcpl: kept stopped until then.
+  echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
+  "${APT[@]}" install postfix dovecot-imapd dovecot-pop3d dovecot-lmtpd rspamd || return 1
+  systemctl disable -q --now postfix dovecot rspamd 2>/dev/null || true
+}
+
+install_node() {
+  local arch file
+  arch=$([ "$(uname -m)" = aarch64 ] && echo arm64 || echo x64)
+  file=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt | awk "/linux-$arch.tar.xz/{print \$2}") || return 1
+  install -d /opt/webcpl-runtimes/node
+  curl -fsSL "https://nodejs.org/dist/latest-v22.x/$file" | tar -xJ -C /opt/webcpl-runtimes/node || return 1
+  ln -sfn "/opt/webcpl-runtimes/node/${file%.tar.xz}" /opt/webcpl-runtimes/node/22
+}
+
+install_python() { "${APT[@]}" install python3 python3-venv python3-pip python3-dev build-essential; }
+install_ruby() { "${APT[@]}" install ruby-full build-essential; }
+
+install_vps() {
+  if ! apt-cache show incus >/dev/null 2>&1; then
+    # Older releases get Incus from its upstream packages (Zabbly).
+    install -d /etc/apt/keyrings
+    curl -fsSLo /etc/apt/keyrings/zabbly.asc https://pkgs.zabbly.com/key.asc || return 1
+    echo "deb [signed-by=/etc/apt/keyrings/zabbly.asc] https://pkgs.zabbly.com/incus/stable $CODENAME main" > /etc/apt/sources.list.d/zabbly-incus.list
+    apt-get update -q
+  fi
+  "${APT[@]}" install incus || return 1
+  systemctl enable -q --now incus.socket incus 2>/dev/null || true
+  incus storage show default >/dev/null 2>&1 || incus admin init --minimal
+}
+
+component "the web server" install_web || true
+if [ -n "$PHP_VERSIONS" ]; then component "PHP $PHP_VERSIONS" install_php || PHP_VERSIONS=""; fi
+for key in mariadb postgresql redis dns ftp mail node python ruby vps; do
+  [ "${WANT[$key]}" = 1 ] || continue
+  component "$key" "install_$key" || WANT[$key]=0
+done
+
+# What actually got installed: the agent reports from this file.
+WEB_OK=true
+if [[ " ${FAILED[*]-} " == *" the web server "* ]]; then WEB_OK=false; fi
+php_json=$(printf '"%s",' $PHP_VERSIONS); php_json="[${php_json%,}]"
+if [ "$php_json" = '[""]' ]; then php_json='[]'; fi
+b() { [ "${WANT[$1]}" = 1 ] && echo true || echo false; }
+cat > "$CONF/components.json" <<JSON
+{
+  "web": $WEB_OK,
+  "php": $php_json,
+  "node": $(b node), "python": $(b python), "ruby": $(b ruby),
+  "mariadb": $(b mariadb), "postgresql": $(b postgresql), "redis": $(b redis),
+  "dns": $(b dns), "ftp": $(b ftp), "mail": $(b mail), "vps": $(b vps)
+}
+JSON
+
+# ---- Webcpl -----------------------------------------------------------------------------------
+
+say "Installing the panel"
+if [ -d "$APP/.git" ]; then
+  git -C "$APP" fetch -q --depth 1 origin "$BRANCH" && git -C "$APP" reset -q --hard FETCH_HEAD
+else
+  rm -rf "$APP"
+  git clone -q --depth 1 --branch "$BRANCH" "$REPO" "$APP"
+fi
+VERSION=$(grep -m1 '"version"' "$APP/package.json" | cut -d'"' -f4)
+(cd "$APP" && "$BUN" install --frozen-lockfile >/dev/null && "$BUN" run build >/dev/null) || die "the interface could not be built."
+
+cat > "$CONF/webcpl.env" <<ENV
+NODE_ENV=production
+WEBCPL_PORT=$PORT
+WEBCPL_HOST=0.0.0.0
+WEBCPL_DATA=$DATA
+WEBCPL_AGENT_SOCKET=/run/webcpl/agent.sock
+WEBCPL_BRANCH=$BRANCH
+WEBCPL_VERSION=$VERSION
+ENV
+chmod 640 "$CONF/webcpl.env"; chgrp webcpl "$CONF/webcpl.env"
+
+cat > /etc/systemd/system/webcpl-agent.service <<UNIT
+[Unit]
+Description=Webcpl agent (runs server operations for the panel)
+After=network-online.target
+
+[Service]
+EnvironmentFile=$CONF/webcpl.env
+ExecStart=$BUN $APP/agent/index.ts
+# The socket directory belongs to root, readable by the panel's group only.
+Group=webcpl
+RuntimeDirectory=webcpl
+RuntimeDirectoryMode=0750
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /etc/systemd/system/webcpl.service <<UNIT
+[Unit]
+Description=Webcpl hosting control panel
+After=network-online.target webcpl-agent.service
+Wants=webcpl-agent.service
+
+[Service]
+User=webcpl
+Group=webcpl
+EnvironmentFile=$CONF/webcpl.env
+WorkingDirectory=$APP
+ExecStart=$BUN $APP/panel/index.ts
+Restart=always
+RestartSec=2
+# The panel never needs more than its data folder and the agent's socket.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=$DATA
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /usr/local/bin/webcpl <<'CLI'
+#!/usr/bin/env bash
+# webcpl: manage the panel from the server.
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "Run as root: sudo webcpl $*" >&2; exit 1; }
+set -a; . /etc/webcpl/webcpl.env; set +a
+case "${1:-help}" in
+  update)
+    git -C /opt/webcpl fetch -q --depth 1 origin "${WEBCPL_BRANCH:-main}" && git -C /opt/webcpl reset -q --hard FETCH_HEAD
+    cd /opt/webcpl && /usr/local/bin/bun install --frozen-lockfile >/dev/null && /usr/local/bin/bun run build >/dev/null
+    sed -i "s/^WEBCPL_VERSION=.*/WEBCPL_VERSION=$(grep -m1 '"version"' package.json | cut -d'"' -f4)/" /etc/webcpl/webcpl.env
+    systemctl restart webcpl-agent webcpl && echo "Updated to $(grep -m1 '"version"' package.json | cut -d'"' -f4)." ;;
+  restart) systemctl restart webcpl-agent webcpl && echo "Restarted." ;;
+  status) systemctl --no-pager status webcpl-agent webcpl | grep -E '●|Active:' ;;
+  logs) exec journalctl -u webcpl -u webcpl-agent -f ;;
+  *) cd /opt/webcpl && exec runuser -u webcpl -- /usr/local/bin/bun panel/cli.ts "$@" ;;
+esac
+CLI
+chmod 755 /usr/local/bin/webcpl
+
+systemctl daemon-reload
+systemctl enable -q webcpl-agent webcpl
+systemctl restart webcpl-agent
+sleep 1
+systemctl restart webcpl
+for _ in $(seq 1 40); do curl -fs -o /dev/null "http://127.0.0.1:$PORT/api/auth/me" && break; sleep 0.5; done
+curl -fs -o /dev/null "http://127.0.0.1:$PORT/api/auth/me" || { journalctl -u webcpl -u webcpl-agent -n 40 --no-pager; die "the panel did not start."; }
+
+if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
+  ufw allow "$PORT/tcp" >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null
+  if [ "${WANT[dns]}" = 1 ]; then ufw allow 53 >/dev/null; fi
+fi
+
+# ---- done -----------------------------------------------------------------------------------------
+
+trap - ERR
+IP=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+PASSFILE="$DATA/initial-admin-password"
+echo
+echo "────────────────────────────────────────────────────────"
+echo "  Webcpl $VERSION is running."
+echo
+echo "  Open:      http://$IP:$PORT"
+echo "  Username:  admin"
+if [ -f "$PASSFILE" ]; then
+  echo "  Password:  $(cat "$PASSFILE")"
+  rm -f "$PASSFILE"
+  echo
+  echo "  Save this password now; it is not shown again."
+else
+  echo "  Password:  unchanged (reset it with: sudo webcpl reset-admin-password)"
+fi
+if [ ${#FAILED[@]} -gt 0 ]; then
+  echo
+  echo "  Not installed: ${FAILED[*]}"
+fi
+echo
+echo "  Manage:    sudo webcpl status | update | restart | logs | reset-admin-password"
+echo "────────────────────────────────────────────────────────"
