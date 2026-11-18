@@ -1,6 +1,6 @@
 {
   "name": "webcpl",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Open-source web hosting control panel: shared hosting and LXC VPS, for admins, resellers and users.",
