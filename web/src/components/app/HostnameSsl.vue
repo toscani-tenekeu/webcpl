@@ -33,7 +33,7 @@ async function setTls() {
   await put('/api/server/ssl/panel', { on })
   // The panel restarts on the other scheme: go there once it is back.
   const target = `${on ? 'https' : 'http'}://${on ? data.value!.hostname : location.hostname}:${data.value!.port}/settings`
-  setTimeout(() => (location.href = target), 4000)
+  setTimeout(() => (location.href = target), 8000)
 }
 </script>
 
