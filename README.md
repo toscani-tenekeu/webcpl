@@ -70,7 +70,14 @@ Other options: `--port N` (default `7777`).
 - An optional off-site copy over SFTP or to S3-compatible storage.
 - Backups are stored in `/var/backups/webcpl`.
 
-Next: admin tools (firewall, Fail2ban, monitoring, branding, updates).
+**0.8**: admin tools.
+- Firewall (UFW) rules; SSH and the panel always stay open.
+- Fail2ban for SSH, mail and panel sign-ins.
+- Webcpl and system updates from the panel.
+- A Let's Encrypt certificate for the hostname, used for HTTPS on the panel and for mail.
+- 24-hour charts of CPU, memory, disk and network.
+
+Next: 1.0.
 
 ## Manage
 
