@@ -30,6 +30,8 @@ startTraffic()
 
 const server = Bun.serve<ConsoleData>({
   maxRequestBodySize: 300 * 1024 * 1024,
+  // Some actions (snapshots, certificates) take longer than the 10-second default.
+  idleTimeout: 120,
   hostname: config.host,
   port: config.port,
   async fetch(req, srv) {
