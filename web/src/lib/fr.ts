@@ -774,4 +774,10 @@ export const fr: Record<string, string> = {
   "turned on HTTPS for the panel": "a activé HTTPS pour le panneau",
   "turned off HTTPS for the panel": "a désactivé HTTPS pour le panneau",
   "FTP works too, on port 21 with “explicit TLS”. Prefer SFTP when your app supports it.": "Le FTP fonctionne aussi, sur le port 21 avec « TLS explicite ». Préférez SFTP si votre logiciel le permet.",
+  "Your websites are paused": "Vos sites sont en pause",
+  "They used this month’s bandwidth and come back at the start of next month. Ask your provider for a larger plan to bring them back sooner.": "Ils ont utilisé la bande passante du mois et reviennent au début du mois prochain. Demandez un forfait plus grand à votre fournisseur pour les rétablir plus tôt.",
+  "Your disk space is full": "Votre espace disque est plein",
+  "Uploads from the panel are refused until you delete some files or get a larger plan.": "Les envois depuis le panneau sont refusés jusqu'à ce que vous supprimiez des fichiers ou obteniez un forfait plus grand.",
+  "bandwidth used up: websites paused": "bande passante épuisée : sites en pause",
+  "bandwidth available again: websites back": "bande passante de nouveau disponible : sites rétablis",
 }

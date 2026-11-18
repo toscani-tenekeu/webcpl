@@ -248,6 +248,7 @@ WantedBy=multi-user.target
   'site.write': async (args) => {
     const user = username(args)
     const site = siteFrom(user, args.site)
+    if (site.overBandwidth && !existsSync('/var/www/webcpl-default/webcpl-bandwidth.html')) writeAtomic('/var/www/webcpl-default/webcpl-bandwidth.html', BANDWIDTH_PAGE)
     // Websockets to apps need this map once; older installs did not write it.
     if (site.appPort && !existsSync('/etc/nginx/conf.d/webcpl-upgrade.conf')) {
       writeAtomic('/etc/nginx/conf.d/webcpl-upgrade.conf', "map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n")
@@ -323,9 +324,16 @@ interface Site {
   ssl: { cert: string; key: string } | null
   forceHttps: boolean
   suspended: boolean
+  /** Out of monthly bandwidth: the site answers 509 until the next month. */
+  overBandwidth: boolean
   /** Set when the site is served by one of the account's apps instead of PHP. */
   appPort: number | null
 }
+
+const BANDWIDTH_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bandwidth limit reached</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center;max-width:32rem;padding:1rem}</style></head>
+<body><main><h1>This website used its monthly bandwidth</h1><p>It comes back at the start of next month, or sooner if its owner raises the limit.</p></main></body></html>
+`
 
 function siteFrom(user: string, input: unknown): Site {
   const s = (input ?? {}) as Record<string, unknown>
@@ -343,6 +351,7 @@ function siteFrom(user: string, input: unknown): Site {
     ssl: ssl ? { cert: certPath(ssl.cert), key: certPath(ssl.key) } : null,
     forceHttps: s.forceHttps === true && !!ssl,
     suspended: s.suspended === true,
+    overBandwidth: s.overBandwidth === true,
     appPort: appPort(s.appPort),
   }
 }
@@ -360,6 +369,8 @@ function siteChanges(user: string, site: Site): Change[] {
   const acme = `    location /.well-known/acme-challenge/ { root ${ACME_ROOT}; }`
   const body = site.suspended
     ? `    location / { return 503; }\n    error_page 503 /webcpl-suspended.html;\n    location = /webcpl-suspended.html { root /var/www/webcpl-default; internal; }`
+    : site.overBandwidth
+    ? `    location / { return 509; }\n    error_page 509 /webcpl-bandwidth.html;\n    location = /webcpl-bandwidth.html { root /var/www/webcpl-default; internal; }`
     : site.appPort
     ? `    location / {
         proxy_pass http://127.0.0.1:${site.appPort};

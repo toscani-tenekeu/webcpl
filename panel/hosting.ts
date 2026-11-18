@@ -146,6 +146,7 @@ export function siteFor(u: UserRow, d: DomainRow) {
     ssl: d.ssl_cert && d.ssl_key ? { cert: d.ssl_cert, key: d.ssl_key } : null,
     forceHttps: !!d.force_https,
     suspended: !!u.suspended,
+    overBandwidth: !!u.over_bandwidth,
     appPort: db.query<{ port: number }, [number]>('SELECT port FROM apps WHERE domain_id = ?').get(d.id)?.port ?? null,
   }
 }

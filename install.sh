@@ -169,6 +169,11 @@ HTML
 <style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center}</style></head>
 <body><main><h1>This website is suspended</h1><p>Please contact the website's owner.</p></main></body></html>
 HTML
+  cat > /var/www/webcpl-default/webcpl-bandwidth.html <<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bandwidth limit reached</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#222;background:#fafafa}main{text-align:center;max-width:32rem;padding:1rem}</style></head>
+<body><main><h1>This website used its monthly bandwidth</h1><p>It comes back at the start of next month, or sooner if its owner raises the limit.</p></main></body></html>
+HTML
   cat > /etc/nginx/conf.d/webcpl.conf <<'NGINX'
 # Written by the Webcpl installer.
 log_format webcpl_bytes '$bytes_sent $request_length';

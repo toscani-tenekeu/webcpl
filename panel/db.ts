@@ -190,6 +190,7 @@ for (const statement of [
   'ALTER TABLE users ADD COLUMN disk_measured_at INTEGER',
   "ALTER TABLE databases ADD COLUMN engine TEXT NOT NULL DEFAULT 'mariadb'",
   'ALTER TABLE users ADD COLUMN redis_enabled INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE users ADD COLUMN over_bandwidth INTEGER NOT NULL DEFAULT 0',
 ]) {
   try {
     db.exec(statement)
@@ -225,6 +226,7 @@ export interface UserRow {
   disk_used: number | null
   disk_measured_at: number | null
   redis_enabled: number
+  over_bandwidth: number
 }
 
 export interface DomainRow {
