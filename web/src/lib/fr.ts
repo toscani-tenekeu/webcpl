@@ -525,4 +525,5 @@ export const fr: Record<string, string> = {
   "deleted VPS": "a supprimé le VPS",
   "opened VPS console": "a ouvert la console du VPS",
   "VPS traffic used up": "trafic du VPS épuisé",
+  "Paused for a moment": "En pause un instant",
 }

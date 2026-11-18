@@ -14,6 +14,7 @@ const view = computed(() => {
   if (v.status === 'error') return { label: 'Failed', tone: 'bad' }
   if (v.state === 'running') return { label: 'Running', tone: 'good' }
   if (v.state === 'stopped') return { label: 'Stopped', tone: 'off' }
+  if (v.state === 'frozen') return { label: 'Paused for a moment', tone: 'busy' }
   return { label: v.state ? v.state.charAt(0).toUpperCase() + v.state.slice(1) : 'Unknown', tone: 'off' }
 })
 </script>

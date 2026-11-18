@@ -290,7 +290,7 @@ install_vps() {
     echo "deb [signed-by=/etc/apt/keyrings/zabbly.asc] https://pkgs.zabbly.com/incus/stable $CODENAME main" > /etc/apt/sources.list.d/zabbly-incus.list
     apt-get update -q
   fi
-  "${APT[@]}" install incus || return 1
+  "${APT[@]}" install incus btrfs-progs || return 1
   # Inside a container only part of the ID range is mapped; Incus must stay within it.
   local mapped
   mapped=$(awk 'NR==1 {print $3}' /proc/self/uid_map)
@@ -304,7 +304,17 @@ install_vps() {
   fi
   systemctl enable -q --now incus.socket incus 2>/dev/null || true
   # Each piece is checked on its own, so a run that stopped half-way is completed.
-  incus storage show default >/dev/null 2>&1 || incus storage create default dir || return 1
+  # btrfs enforces each VPS's disk size; dir is the fallback where a loop file cannot be used.
+  if ! incus storage show default >/dev/null 2>&1; then
+    local free_gb pool_gb
+    free_gb=$(df -BG --output=avail /var/lib | tail -1 | tr -dc 0-9)
+    pool_gb=$(( free_gb * 7 / 10 ))
+    [ "$pool_gb" -ge 10 ] || pool_gb=10
+    if ! incus storage create default btrfs size="${pool_gb}GiB" >/dev/null 2>&1; then
+      incus storage create default dir || return 1
+      warn "VPS disks use the dir storage driver: disk sizes are not enforced."
+    fi
+  fi
   incus network show incusbr0 >/dev/null 2>&1 || incus network create incusbr0 || return 1
   incus profile device show default | grep -q '^root:' || incus profile device add default root disk path=/ pool=default || return 1
   incus profile device show default | grep -q '^eth0:' || incus profile device add default eth0 nic network=incusbr0 name=eth0 || return 1

@@ -44,7 +44,9 @@ Other options: `--port N` (default `7777`).
 - A DNS zone per domain, MariaDB databases, a file manager, cron jobs and SFTP.
 - CPU, memory and process limits per account.
 
-Next: VPS, more databases, app runtimes, mail and backups.
+**0.3**: VPS with Incus. Users split their VPS plan across LXC containers on 11 Linux distributions, with SSH through a forwarded port, a browser console, power actions, resizing, reinstalls, snapshots and monthly traffic limits.
+
+Next: more databases, app runtimes, mail and backups.
 
 ## Manage
 
