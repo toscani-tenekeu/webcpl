@@ -12,7 +12,9 @@ import './routes/vps.ts'
 import './routes/apps.ts'
 import './routes/mail.ts'
 import './routes/backups.ts'
+import './routes/admin.ts'
 import { startSchedule } from './backups.ts'
+import { startMetrics } from './metrics.ts'
 import { consoleSocket, upgradeConsole, type ConsoleData } from './console.ts'
 import { startTraffic } from './vps.ts'
 import { startUsage } from './usage.ts'
@@ -31,11 +33,13 @@ ensureAdmin()
 startUsage()
 startTraffic()
 startSchedule()
+startMetrics()
 
 const server = Bun.serve<ConsoleData>({
   maxRequestBodySize: 300 * 1024 * 1024,
   // Some actions (snapshots, certificates) take longer than the 10-second default.
   idleTimeout: 120,
+  ...(config.tls ? { tls: { cert: Bun.file(config.tls.cert), key: Bun.file(config.tls.key) } } : {}),
   hostname: config.host,
   port: config.port,
   async fetch(req, srv) {
@@ -49,4 +53,4 @@ const server = Bun.serve<ConsoleData>({
   websocket: consoleSocket,
 })
 
-console.log(`Webcpl ${version} listening on http://${server.hostname}:${server.port}`)
+console.log(`Webcpl ${version} listening on ${config.tls ? 'https' : 'http'}://${server.hostname}:${server.port}`)
