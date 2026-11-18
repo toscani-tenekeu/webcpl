@@ -264,7 +264,26 @@ PDNS
   systemctl enable -q pdns && systemctl restart pdns
 }
 
-install_ftp() { "${APT[@]}" install pure-ftpd && systemctl enable -q --now pure-ftpd; }
+# FTP for the hosting accounts with their own panel password: each one is locked in its
+# home, TLS is offered, passive ports are 40000-40100. SFTP stays the better choice.
+install_ftp() {
+  "${APT[@]}" install pure-ftpd || return 1
+  local c=/etc/pure-ftpd/conf
+  echo yes > $c/ChrootEveryone
+  echo yes > $c/NoAnonymous
+  echo 1000 > $c/MinUID
+  echo "40000 40100" > $c/PassivePortRange
+  echo 1 > $c/TLS
+  echo yes > $c/DontResolve
+  echo no > $c/PAMAuthentication
+  echo yes > $c/UnixAuthentication
+  if [ ! -f /etc/ssl/private/pure-ftpd.pem ]; then
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(hostname -f 2>/dev/null || hostname)" \
+      -keyout /etc/ssl/private/pure-ftpd.pem -out /etc/ssl/private/pure-ftpd.pem >/dev/null 2>&1
+    chmod 0600 /etc/ssl/private/pure-ftpd.pem
+  fi
+  systemctl enable -q pure-ftpd && systemctl restart pure-ftpd
+}
 
 install_mail() {
   # Dovecot 2.4 (Debian 13) uses a new configuration format that Webcpl does not write yet.

@@ -59,6 +59,7 @@ route('GET', '/api/hosting', async (ctx) => {
     hostname: getSetting('hostname') || null,
     previewUrl: `http://${address}/~${u.username}/`,
     sftp: { host: getSetting('hostname') || address, port: 22, username: u.username, ssh: hosting.hostingLimits(u).ssh === true },
+    ftp: info.components.ftp === true,
     phpVersions: info.php,
     phpSettings: JSON.parse(u.php_settings || '{}'),
     limits: hosting.hostingLimits(u),

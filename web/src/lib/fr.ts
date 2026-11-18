@@ -773,4 +773,5 @@ export const fr: Record<string, string> = {
   "got a certificate for the hostname": "a obtenu un certificat pour le nom d'hôte",
   "turned on HTTPS for the panel": "a activé HTTPS pour le panneau",
   "turned off HTTPS for the panel": "a désactivé HTTPS pour le panneau",
+  "FTP works too, on port 21 with “explicit TLS”. Prefer SFTP when your app supports it.": "Le FTP fonctionne aussi, sur le port 21 avec « TLS explicite ». Préférez SFTP si votre logiciel le permet.",
 }

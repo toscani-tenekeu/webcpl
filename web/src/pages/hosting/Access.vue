@@ -64,6 +64,10 @@ const FIELDS = [
           <CopyLine :text="`sftp ${data.sftp.username}@${data.sftp.host}`" />
           <CopyLine v-if="data.sftp.ssh" :text="`ssh ${data.sftp.username}@${data.sftp.host}`" />
           <p v-else class="text-muted-foreground text-xs">{{ t('Your plan includes SFTP file access, not a shell.') }}</p>
+          <template v-if="data.ftp">
+            <CopyLine :text="`ftp://${data.sftp.username}@${data.sftp.host}`" />
+            <p class="text-muted-foreground text-xs">{{ t('FTP works too, on port 21 with “explicit TLS”. Prefer SFTP when your app supports it.') }}</p>
+          </template>
         </CardContent>
       </Card>
       <Card>
