@@ -82,6 +82,9 @@ export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
       return `${name}:${hash}`
     })
     mkdirSync(`/etc/webcpl/htpasswd/${user}`, { recursive: true, mode: 0o750 })
+    // Apache passes through the parent and reads only its account's folder.
+    await must(['chown', 'root:root', '/etc/webcpl/htpasswd'], 'chown htpasswd')
+    await must(['chmod', '0711', '/etc/webcpl/htpasswd'], 'chmod htpasswd')
     await must(['chgrp', 'www-data', `/etc/webcpl/htpasswd/${user}`], 'chgrp htpasswd')
     writeAtomic(file, entries.join('\n') + '\n', 0o640)
     await must(['chgrp', 'www-data', file], 'chgrp htpasswd')
