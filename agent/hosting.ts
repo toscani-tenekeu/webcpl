@@ -83,16 +83,17 @@ export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
     await must(['chmod', '0710', home], 'chmod home')
     // Apache reads the sites as www-data: it joins the account's group, which can only traverse the home folder.
     await run(['usermod', '-aG', user, 'www-data'])
-    for (const [dir, mode] of [['domains', 0o755], ['tmp', 0o700]] as const) {
+    for (const [dir, mode] of [['domains', 0o755], ['tmp', 0o700], ['logs', 0o750]] as const) {
       const path = `${home}/${dir}`
       mkdirSync(path, { recursive: true, mode })
       chownSync(path, uid, gid)
     }
-    // Logs are written by root-owned servers, so they live outside the home folder; the account reads them.
+    // nginx and Apache write their logs as root, so those live outside the home folder where the
+    // account cannot plant links; it reads them through ~/access-logs. PHP's own logs go to ~/logs.
     mkdirSync(`${LOGS}/${user}`, { recursive: true })
     await must(['chown', `root:${user}`, `${LOGS}/${user}`], 'chown logs')
     await must(['chmod', '0750', `${LOGS}/${user}`], 'chmod logs')
-    if (!existsSync(`${home}/logs`)) symlinkSync(`${LOGS}/${user}`, `${home}/logs`)
+    if (!existsSync(`${home}/access-logs`)) symlinkSync(`${LOGS}/${user}`, `${home}/access-logs`)
     await must(['chpasswd'], 'Could not set the password', { input: `${user}:${password}\n` })
     await setShell(user, args.ssh === true)
     await applyLimits(user, (args.limits ?? {}) as Limits)
@@ -190,6 +191,8 @@ error_log = ${home}/logs/php-fpm-${v}.log
 daemonize = no
 
 [${user}]
+user = ${user}
+group = ${user}
 listen = /run/webcpl-php-${id}/php.sock
 listen.mode = 0660
 pm = ondemand
@@ -226,8 +229,9 @@ WantedBy=multi-user.target
       writeAtomic(`${PHP_CONF}/${id}.conf`, conf)
       writeAtomic(`${SYSTEMD}/${unitName(user, v)}`, unit)
       if (unitChanged) await run(['systemctl', 'daemon-reload'])
-      const test = await run([`/usr/sbin/php-fpm${v}`, '--test', '--fpm-config', `${PHP_CONF}/${id}.conf`])
-      if (!test.ok) throw new Error(`PHP ${v} settings were refused: ${test.stderr.trim().split('\n').at(-1)}`)
+      // Tested as the account, the way the service runs it.
+      const test = await run(['runuser', '-u', user, '--', `/usr/sbin/php-fpm${v}`, '--test', '--fpm-config', `${PHP_CONF}/${id}.conf`])
+      if (!test.ok) throw new Error(`PHP ${v} settings were refused: ${(test.stderr + test.stdout).trim().split('\n').filter((l) => /ERROR|error/.test(l)).slice(-2).join(' ')}`)
       await must(['systemctl', 'enable', unitName(user, v)], 'Could not enable PHP')
       await must(['systemctl', confChanged || unitChanged ? 'restart' : 'start', unitName(user, v)], `PHP ${v} did not start`)
     }
