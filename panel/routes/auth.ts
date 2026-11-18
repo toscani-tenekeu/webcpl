@@ -36,6 +36,8 @@ route('POST', '/api/auth/login', async (ctx) => {
   const ok = await auth.verifyPassword(password, user?.password_hash ?? DUMMY_HASH)
   if (!user || !ok) {
     auth.recordFailure(`ip:${ctx.ip}`, `u:${username}`)
+    // Fail2ban's webcpl jail reads this line from the journal.
+    console.warn(`webcpl: failed sign-in from ${ctx.ip}`)
     throw new HttpError(401, 'Wrong username or password.', 'bad_credentials')
   }
   if (user.suspended) throw new HttpError(403, user.suspended_reason ? `This account is suspended: ${user.suspended_reason}` : 'This account is suspended.', 'suspended')
@@ -54,6 +56,7 @@ route('POST', '/api/auth/2fa', (ctx) => {
   const user = userById(userId)!
   if (!auth.verifyTotp(user.totp_secret, ctx.body.code)) {
     auth.recordFailure(`ip:${ctx.ip}`, `u:${user.username}`)
+    console.warn(`webcpl: failed sign-in from ${ctx.ip}`)
     throw new HttpError(401, 'That code is not valid.', 'bad_code')
   }
   auth.consumeTwoFactorTicket(ticket)

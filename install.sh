@@ -105,7 +105,7 @@ component() { # component name function
 
 say "Installing base packages"
 apt-get update -q
-"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone
+"${APT[@]}" install ca-certificates curl git zip unzip gnupg lsb-release acl sudo openssh-server zstd rclone ufw fail2ban python3-systemd
 
 if ! command -v bun >/dev/null && [ ! -x /usr/local/bin/bun ]; then
   say "Installing Bun"
@@ -554,6 +554,44 @@ fi
 if [ -n "$PHP_VERSIONS" ] && { [ "${WANT[mariadb]}" = 1 ] || [ "${WANT[postgresql]}" = 1 ]; }; then
   component "Adminer" install_adminer || true
 fi
+
+# Fail2ban: SSH, mail and panel sign-ins. Bans last an hour after 5 failures in 10 minutes.
+setup_fail2ban() {
+  cat > /etc/fail2ban/filter.d/webcpl.conf <<'F2B'
+[Definition]
+failregex = ^.*webcpl: failed sign-in from <HOST>$
+journalmatch = _SYSTEMD_UNIT=webcpl.service
+F2B
+  local mail=false
+  [ "${WANT[mail]}" = 1 ] && mail=true
+  cat > /etc/fail2ban/jail.d/webcpl.conf <<F2B
+# Written by the Webcpl installer.
+[DEFAULT]
+backend = systemd
+bantime = 1h
+findtime = 10m
+maxretry = 5
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+enabled = true
+
+[webcpl]
+enabled = true
+port = $PORT
+
+[postfix-sasl]
+enabled = $mail
+filter = postfix[mode=auth]
+port = smtp,submission,submissions
+
+[dovecot]
+enabled = $mail
+port = imap,imaps,pop3,pop3s,submission,submissions,sieve
+F2B
+  systemctl enable -q fail2ban && systemctl restart fail2ban
+}
+component "Fail2ban" setup_fail2ban || true
 
 # What actually got installed: the agent reports from this file.
 WEB_OK=true

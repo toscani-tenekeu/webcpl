@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import BackupSettings from '@/components/app/BackupSettings.vue'
+import HostnameSsl from '@/components/app/HostnameSsl.vue'
 import { SaveIcon } from '@lucide/vue'
 import { ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
@@ -84,5 +85,6 @@ async function save() {
     <FieldError v-if="formError">{{ formError }}</FieldError>
     <div><Button type="submit" :disabled="busy"><Spinner v-if="busy" data-icon="inline-start" /><SaveIcon v-else data-icon="inline-start" /> {{ t('Save settings') }}</Button></div>
   </form>
+  <HostnameSsl />
   <BackupSettings />
 </template>

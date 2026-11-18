@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { CpuIcon, NetworkIcon, PackageIcon, RotateCwIcon } from '@lucide/vue'
 import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
+import Fail2banTab from '@/components/server/Fail2banTab.vue'
+import FirewallTab from '@/components/server/FirewallTab.vue'
+import MetricsCard from '@/components/server/MetricsCard.vue'
+import UpdatesTab from '@/components/server/UpdatesTab.vue'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ConfirmDialog from '@/components/app/ConfirmDialog.vue'
 import LoadError from '@/components/LoadError.vue'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +21,10 @@ import { bytes, duration } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import type { ComponentStatus, ServerInfo } from '@/lib/types'
 
+const route = useRoute()
+const router = useRouter()
+const tab = computed(() => String(route.params.tab || 'overview'))
+const goTab = (value: string | number) => router.replace(value === 'overview' ? '/server' : `/server/${value}`)
 const { data, error, reload } = useResource<{ info: ServerInfo | { error: string }; components: ComponentStatus[] | null; version: string }>('/api/server', 15_000)
 const info = computed(() => (data.value?.info && !('error' in data.value.info) ? data.value.info : null))
 const agentError = computed(() => (data.value?.info && 'error' in data.value.info ? data.value.info.error : ''))
@@ -39,7 +49,20 @@ async function act() {
     <h2 class="text-2xl font-semibold tracking-tight">{{ t('Server') }}</h2>
     <p class="text-muted-foreground mt-1 text-sm">{{ t('The machine Webcpl runs on, and the services it manages.') }}</p>
   </div>
+  <Tabs :model-value="tab" @update:model-value="goTab">
+    <TabsList>
+      <TabsTrigger value="overview" class="px-3">{{ t('Overview') }}</TabsTrigger>
+      <TabsTrigger value="firewall" class="px-3">{{ t('Firewall') }}</TabsTrigger>
+      <TabsTrigger value="security" class="px-3">{{ t('Blocked addresses') }}</TabsTrigger>
+      <TabsTrigger value="updates" class="px-3">{{ t('Updates') }}</TabsTrigger>
+    </TabsList>
+  </Tabs>
+  <FirewallTab v-if="tab === 'firewall'" />
+  <Fail2banTab v-else-if="tab === 'security'" />
+  <UpdatesTab v-else-if="tab === 'updates'" />
+  <template v-else>
   <LoadError :message="error || agentError" />
+  <MetricsCard />
 
   <div v-if="info" class="grid gap-5 md:grid-cols-2">
     <Card>
@@ -106,6 +129,8 @@ async function act() {
       </p>
     </CardContent>
   </Card>
+
+  </template>
 
   <ConfirmDialog
     v-model:open="pendingOpen"

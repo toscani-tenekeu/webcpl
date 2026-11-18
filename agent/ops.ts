@@ -9,6 +9,7 @@ import { dataOps } from './data.ts'
 import { appOps } from './apps.ts'
 import { mailOps } from './mail.ts'
 import { backupOps } from './backup.ts'
+import { adminOps } from './admin.ts'
 import { fileOps } from './files.ts'
 import { hostingOps } from './hosting.ts'
 import { serviceOps } from './services.ts'
@@ -96,6 +97,7 @@ export const operations: Record<string, Operation> = {
   ...appOps,
   ...mailOps,
   ...backupOps,
+  ...adminOps,
 
   'agent.ping': () => ({ pong: true, version: process.env.WEBCPL_VERSION ?? null }),
 
