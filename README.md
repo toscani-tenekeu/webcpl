@@ -64,7 +64,13 @@ Other options: `--port N` (default `7777`).
 - SnappyMail webmail at `http://IP/webmail/`.
 - Mail needs Dovecot 2.3: Ubuntu 22.04/24.04 and Debian 12.
 
-Next: backups.
+**0.7**: backups.
+- Each account's files, mail, apps and databases, backed up on demand or daily or weekly, with retention.
+- Download and restore from the panel.
+- An optional off-site copy over SFTP or to S3-compatible storage.
+- Backups are stored in `/var/backups/webcpl`.
+
+Next: admin tools (firewall, Fail2ban, monitoring, branding, updates).
 
 ## Manage
 
