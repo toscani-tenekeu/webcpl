@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useColorMode } from '@vueuse/core'
 import {
-  ActivityIcon, ClockIcon, DatabaseIcon, FolderIcon, GlobeIcon, KeyRoundIcon, LanguagesIcon, LayoutDashboardIcon, LayersIcon, LogOutIcon, MoonIcon, ServerIcon, SettingsIcon,
+  ActivityIcon, BoxIcon, ClockIcon, DatabaseIcon, FolderIcon, GlobeIcon, KeyRoundIcon, LanguagesIcon, LayoutDashboardIcon, LayersIcon, LogOutIcon, MoonIcon, ServerIcon, SettingsIcon,
   ShieldIcon, SunIcon, UndoIcon, UserCogIcon, UsersIcon,
 } from '@lucide/vue'
 import { computed } from 'vue'
@@ -50,6 +50,9 @@ const groups = computed(() => {
             { to: '/access', label: 'Access and PHP', icon: KeyRoundIcon },
           ],
         }]
+      : []),
+    ...(user.value?.vpsPlan || role !== 'user'
+      ? [{ label: 'VPS', links: [{ to: '/vps', label: 'VPS', icon: BoxIcon }] }]
       : []),
     ...(role === 'admin'
       ? [{ label: 'Server', links: [{ to: '/server', label: 'Server', icon: ServerIcon }, { to: '/settings', label: 'Panel settings', icon: SettingsIcon }] }]

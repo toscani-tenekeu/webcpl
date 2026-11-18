@@ -111,6 +111,28 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 );
 
 -- Bandwidth per calendar month, disk as last measured.
+CREATE TABLE IF NOT EXISTS vps (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  instance TEXT NOT NULL UNIQUE,
+  image TEXT NOT NULL,
+  vcpu INTEGER NOT NULL,
+  memory_mb INTEGER NOT NULL,
+  disk_gb INTEGER NOT NULL,
+  ssh_port INTEGER NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'creating',
+  progress TEXT,
+  error TEXT,
+  ipv4 TEXT,
+  traffic_period TEXT,
+  traffic_bytes INTEGER NOT NULL DEFAULT 0,
+  last_rx INTEGER NOT NULL DEFAULT 0,
+  last_tx INTEGER NOT NULL DEFAULT 0,
+  throttled INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  UNIQUE (user_id, name)
+);
 CREATE TABLE IF NOT EXISTS usage (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   period TEXT NOT NULL,
@@ -173,6 +195,28 @@ export interface DomainRow {
   ssl_key: string | null
   ssl_expires_at: number | null
   force_https: number
+  created_at: number
+}
+
+export interface VpsRow {
+  id: number
+  user_id: number
+  name: string
+  instance: string
+  image: string
+  vcpu: number
+  memory_mb: number
+  disk_gb: number
+  ssh_port: number
+  status: 'creating' | 'ready' | 'error' | 'deleting'
+  progress: string | null
+  error: string | null
+  ipv4: string | null
+  traffic_period: string | null
+  traffic_bytes: number
+  last_rx: number
+  last_tx: number
+  throttled: number
   created_at: number
 }
 

@@ -121,3 +121,34 @@ export interface FileEntry {
   owner: string
   target: string | null
 }
+
+export interface Vps {
+  id: number
+  userId: number
+  owner?: string
+  name: string
+  image: { id: string; name: string; version: string }
+  vcpu: number
+  memoryMb: number
+  diskGb: number
+  sshPort: number
+  status: 'creating' | 'ready' | 'error' | 'deleting'
+  progress: string | null
+  error: string | null
+  state: string | null
+  ipv4: string | null
+  ipv6: string | null
+  memoryBytes: number | null
+  diskBytes: number | null
+  cpuNs: number | null
+  trafficBytes: number
+  throttled: boolean
+  createdAt: number
+}
+
+export interface VpsRoom {
+  used: { vcpu: number; memory_mb: number; disk_gb: number }
+  left: { vcpu: number | null; memory_mb: number | null; disk_gb: number | null }
+}
+
+export interface VpsImageInfo { id: string; name: string; version: string }
