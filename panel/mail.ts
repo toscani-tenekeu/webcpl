@@ -56,3 +56,27 @@ export async function removeDomainMail(u: UserRow, zone: string) {
   }
   if (await mailInstalled()) await agent('mail.dkim.delete', { domain: zone }).catch(() => null)
 }
+
+export interface Autoreply { enabled: boolean; subject: string; message: string; start: string | null; end: string | null }
+
+const quote = (text: string) => `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+
+/** The mailbox's Sieve script: spam into Junk, then the vacation reply if it is on. */
+export function sieveScript(spamToJunk: boolean, reply: Autoreply | null) {
+  const lines: string[] = ['require ["fileinto", "vacation", "date", "relational"];']
+  if (spamToJunk) lines.push('if header :contains "X-Spam" "Yes" {', '  fileinto "Junk";', '  stop;', '}')
+  if (reply?.enabled && reply.message.trim()) {
+    const conditions = [
+      ...(reply.start ? [`currentdate :value "ge" "date" ${quote(reply.start)}`] : []),
+      ...(reply.end ? [`currentdate :value "le" "date" ${quote(reply.end)}`] : []),
+    ]
+    const vacation = `vacation :days 1 :subject ${quote(reply.subject || 'Away')} ${quote(reply.message)};`
+    if (conditions.length) lines.push(`if allof(${conditions.join(', ')}) {`, `  ${vacation}`, '}')
+    else lines.push(vacation)
+  }
+  return lines.length > 1 ? lines.join('\n') + '\n' : ''
+}
+
+export async function writeSieve(username: string, address: string, spamToJunk: boolean, reply: Autoreply | null) {
+  await agent('mail.sieve', { user: username, address, script: sieveScript(spamToJunk, reply) })
+}

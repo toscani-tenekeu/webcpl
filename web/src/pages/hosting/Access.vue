@@ -3,6 +3,7 @@ import { HardDriveIcon, KeyRoundIcon, SaveIcon, TerminalIcon } from '@lucide/vue
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import CopyLine from '@/components/app/CopyLine.vue'
+import SshKeys from '@/components/app/SshKeys.vue'
 import LoadError from '@/components/LoadError.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -91,6 +92,8 @@ const FIELDS = [
         </CardContent>
       </Card>
     </div>
+
+    <SshKeys />
 
     <Card>
       <CardHeader>

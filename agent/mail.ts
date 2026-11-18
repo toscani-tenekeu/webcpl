@@ -106,6 +106,27 @@ export const mailOps: Record<string, (args: Args) => Promise<unknown>> = {
     return { ok: true }
   },
 
+  /** Writes a mailbox's Sieve script (spam filing, vacation reply), as the account. */
+  'mail.sieve': async (args) => {
+    const user = String(args.user ?? '')
+    if (!USERNAME.test(user)) throw new Error('Invalid account.')
+    const addr = address(args.address)
+    const script = String(args.script ?? '')
+    if (script.length > 64 * 1024) throw new Error('The filter is too long.')
+    const [local, dom] = addr.split('@')
+    const home = `/home/${user}/mail/${dom}/${local}`
+    await must(['runuser', '-u', user, '--', 'mkdir', '-p', '-m', '0700', home], 'Could not create the mail folder')
+    if (!script.trim()) {
+      await run(['runuser', '-u', user, '--', 'rm', '-f', `${home}/.dovecot.sieve`, `${home}/.dovecot.svbin`])
+      return { ok: true }
+    }
+    await must(['runuser', '-u', user, '--', 'tee', `${home}/.dovecot.sieve`], 'Could not save the filter', { input: script })
+    // Compiled now, so a mistake shows here and not as a lost message.
+    const check = await run(['runuser', '-u', user, '--', 'sievec', `${home}/.dovecot.sieve`])
+    if (!check.ok) throw new Error(`The filter is not valid: ${(check.stderr || check.stdout).trim().split('\n').at(-1)}`)
+    return { ok: true }
+  },
+
   /** Removes a mailbox's messages from the account's home. */
   'mail.purge': async (args) => {
     const user = String(args.user ?? '')

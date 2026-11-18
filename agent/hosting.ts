@@ -71,6 +71,19 @@ async function setShell(user: string, ssh: boolean) {
 }
 
 export const hostingOps: Record<string, (args: Args) => Promise<unknown>> = {
+  /** The account's SSH public keys, for SSH and SFTP sign-in. */
+  'account.sshkeys': async (args) => {
+    const user = username(args)
+    const keys = ((args.keys ?? []) as unknown[]).map(String).map((k) => k.trim())
+    for (const k of keys) {
+      if (!/^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com) [A-Za-z0-9+/=]+( [^\n]*)?$/.test(k)) throw new Error('Invalid SSH key.')
+    }
+    await must(['runuser', '-u', user, '--', 'mkdir', '-p', '-m', '0700', `/home/${user}/.ssh`], 'Could not create ~/.ssh')
+    await must(['runuser', '-u', user, '--', 'tee', `/home/${user}/.ssh/authorized_keys`], 'Could not save the keys', { input: keys.join('\n') + (keys.length ? '\n' : '') })
+    await must(['runuser', '-u', user, '--', 'chmod', '0600', `/home/${user}/.ssh/authorized_keys`], 'Could not protect the keys')
+    return { ok: true }
+  },
+
   /** The password file of one protected folder: bcrypt hashes made by the panel. */
   'htpasswd.write': async (args) => {
     const user = username(args)

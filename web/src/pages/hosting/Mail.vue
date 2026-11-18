@@ -15,6 +15,8 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useResource } from '@/composables/useResource'
 import { api, del, messageOf, post } from '@/lib/api'
@@ -22,7 +24,8 @@ import { bytes } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import { randomPassword } from '@/lib/password'
 
-interface Mailbox { id: number; domainId: number; address: string; quotaMb: number; usedBytes: number }
+interface Autoreply { enabled: boolean; subject: string; message: string; start: string | null; end: string | null }
+interface Mailbox { id: number; domainId: number; address: string; quotaMb: number; usedBytes: number; autoreply: Autoreply | null; spamToJunk: boolean }
 interface Forwarder { id: number; domainId: number; source: string; destinations: string[] }
 interface MailData {
   domains: { id: number; name: string }[]
@@ -69,15 +72,21 @@ async function submit() {
 // ---- edit mailbox ----
 const editing = ref<Mailbox | null>(null)
 const editOpen = computed({ get: () => !!editing.value, set: (v) => { if (!v) editing.value = null } })
-const edit = ref({ password: '', quotaMb: 0 })
+const edit = ref({ password: '', quotaMb: 0, spamToJunk: true, reply: { enabled: false, subject: '', message: '', start: '', end: '' } })
 function openEdit(m: Mailbox) {
-  edit.value = { password: '', quotaMb: m.quotaMb }
+  const r = m.autoreply
+  edit.value = { password: '', quotaMb: m.quotaMb, spamToJunk: m.spamToJunk, reply: { enabled: !!r?.enabled, subject: r?.subject ?? '', message: r?.message ?? '', start: r?.start ?? '', end: r?.end ?? '' } }
   editing.value = m
 }
 async function saveEdit() {
   busy.value = true
   try {
-    await api(`/api/mail/mailboxes/${editing.value!.id}`, { method: 'PATCH', body: { quotaMb: edit.value.quotaMb, ...(edit.value.password ? { password: edit.value.password } : {}) } })
+    await api(`/api/mail/mailboxes/${editing.value!.id}`, { method: 'PATCH', body: {
+      quotaMb: edit.value.quotaMb,
+      spamToJunk: edit.value.spamToJunk,
+      autoreply: { ...edit.value.reply, start: edit.value.reply.start || null, end: edit.value.reply.end || null },
+      ...(edit.value.password ? { password: edit.value.password } : {}),
+    } })
     toast.success(t('Saved'))
     editing.value = null
     await reload()
@@ -235,7 +244,7 @@ async function removeForwarder(f: Forwarder) {
   </Dialog>
 
   <Dialog v-model:open="editOpen">
-    <DialogContent v-if="editing" class="sm:max-w-md">
+    <DialogContent v-if="editing" class="max-h-[92svh] overflow-y-auto sm:max-w-md">
       <DialogHeader><DialogTitle class="font-mono">{{ editing.address }}</DialogTitle><DialogDescription>{{ t('Leave the password empty to keep it.') }}</DialogDescription></DialogHeader>
       <form id="mail-edit" class="flex flex-col gap-4" @submit.prevent="saveEdit">
         <Field>
@@ -249,6 +258,18 @@ async function removeForwarder(f: Forwarder) {
           <FieldLabel for="edit-quota">{{ t('Space (MB)') }}</FieldLabel>
           <Input id="edit-quota" v-model.number="edit.quotaMb" type="number" min="0" />
         </Field>
+        <label class="flex items-center gap-2 text-sm"><Switch v-model="edit.spamToJunk" /> {{ t('Put spam in the Junk folder') }}</label>
+        <div class="flex flex-col gap-3 rounded-lg border p-3">
+          <label class="flex items-center gap-2 text-sm font-medium"><Switch v-model="edit.reply.enabled" /> {{ t('Automatic reply') }}</label>
+          <template v-if="edit.reply.enabled">
+            <Input v-model="edit.reply.subject" :placeholder="t('Subject, like: Away until Monday')" />
+            <Textarea v-model="edit.reply.message" class="min-h-24" :placeholder="t('The reply people get, once a day at most.')" />
+            <div class="grid grid-cols-2 gap-3">
+              <Field><FieldLabel for="ar-start">{{ t('From') }}</FieldLabel><Input id="ar-start" v-model="edit.reply.start" type="date" /></Field>
+              <Field><FieldLabel for="ar-end">{{ t('Until') }}</FieldLabel><Input id="ar-end" v-model="edit.reply.end" type="date" /></Field>
+            </div>
+          </template>
+        </div>
       </form>
       <DialogFooter>
         <Button variant="outline" @click="editing = null">{{ t('Cancel') }}</Button>

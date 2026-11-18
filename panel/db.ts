@@ -174,6 +174,13 @@ CREATE TABLE IF NOT EXISTS metrics (
   rx INTEGER NOT NULL,
   tx INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ssh_keys (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  key TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS usage (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   period TEXT NOT NULL,
@@ -194,6 +201,8 @@ for (const statement of [
   'ALTER TABLE domains ADD COLUMN redirect TEXT',
   "ALTER TABLE domains ADD COLUMN error_pages TEXT NOT NULL DEFAULT '{}'",
   "ALTER TABLE domains ADD COLUMN protected TEXT NOT NULL DEFAULT '[]'",
+  'ALTER TABLE mailboxes ADD COLUMN autoreply TEXT',
+  'ALTER TABLE mailboxes ADD COLUMN spam_to_junk INTEGER NOT NULL DEFAULT 1',
 ]) {
   try {
     db.exec(statement)
